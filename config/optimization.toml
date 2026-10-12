@@ -1,0 +1,33 @@
+# Protocolo fijado antes de ejecutar; el test histórico previo queda excluido de selección.
+[walk_forward]
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01", "2025-01-01", "2025-06-05"]
+inner_validation_days = 90
+early_stopping_rounds = 25
+min_train_rows = 365
+min_eval_rows = 60
+
+[budget]
+max_experiments = 5 # Incluye E0: referencia fija + como máximo cuatro variantes.
+patience = 3
+
+[acceptance]
+min_log_loss_gain = 0.003
+min_auc_gain = 0.005
+required_fold_fraction = 0.60
+min_total_trades = 30
+require_positive_compounded_return = true
+require_beating_constant_log_loss = true
+
+[data]
+extended_start = "2017-08-17"
+
+[experiments]
+# Variantes fijas, sin combinar resultados ni ampliar la grilla después de verlos.
+max_trees = 400
+learning_rate = 0.025
+max_depth = 2
+reg_lambda = 20.0
+min_child_weight = 20
+subsample = 0.8
+colsample_bytree = 0.8
+rolling_train_days = 730

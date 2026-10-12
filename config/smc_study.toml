@@ -1,0 +1,45 @@
+# Definiciones, recetas y límites fijados antes de ejecutar la ronda SMC.
+[walk_forward]
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01", "2025-01-01", "2025-06-05"]
+inner_validation_days = 90
+early_stopping_rounds = 25
+min_train_rows = 365
+min_eval_rows = 60
+
+[budget]
+max_experiments = 5 # S0 referencia, S1 reglas, S2/S3/S4 variantes ML.
+patience = 2 # Dos variantes ML consecutivas sin validación completa.
+
+[acceptance]
+min_log_loss_gain = 0.003
+min_auc_gain = 0.005
+required_fold_fraction = 0.60
+min_total_trades = 30
+require_positive_compounded_return = true
+require_beating_constant_log_loss = true
+
+[smc]
+swing_left = 3
+swing_right = 2
+liquidity_window = 20
+ob_window = 10
+zone_age = 50
+
+[signals]
+threshold = 0.55
+
+[calibration]
+days = 90
+
+[regularized]
+n_estimators = 400
+max_depth = 2
+learning_rate = 0.025
+subsample = 0.8
+colsample_bytree = 0.8
+reg_lambda = 20.0
+min_child_weight = 20
+
+[prospective]
+window_days = 90
+# El inicio se congela en el plan: primer cierre UTC posterior al día de ejecución.

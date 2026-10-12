@@ -1,0 +1,43 @@
+[market]
+symbol = "BTCUSDT"
+interval = "1d"
+start = "2020-01-01"
+end = "2026-10-01" # Exclusivo; archivo mensual completo hasta septiembre.
+
+[features]
+rsi_window = 14
+sma_windows = [10, 20, 50]
+volatility_window = 20
+macd_fast = 12
+macd_slow = 26
+macd_signal = 9
+
+[training]
+horizon = 1
+train_fraction = 0.60
+validation_fraction = 0.20
+min_partition_rows = 60
+seed = 42
+
+[model]
+n_estimators = 160
+max_depth = 3
+learning_rate = 0.03
+subsample = 0.85
+colsample_bytree = 0.85
+reg_lambda = 5.0
+min_child_weight = 10
+
+[search]
+enabled = true
+max_depth = [2, 3]
+learning_rate = [0.03, 0.07]
+
+[backtest]
+threshold = 0.55
+commission_bps = 10.0
+slippage_bps = 5.0
+initial_capital = 10000.0
+
+[paths]
+root = "artifacts"
