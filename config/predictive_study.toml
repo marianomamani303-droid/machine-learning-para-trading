@@ -1,0 +1,40 @@
+# Fixed, bounded research protocol. Observed historical test is descriptive only.
+[walk_forward]
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01", "2025-01-01", "2025-06-05"]
+inner_validation_days = 90
+early_stopping_rounds = 25
+min_train_rows = 365
+min_eval_rows = 60
+
+[budget]
+max_xgboost_recipes = 8
+max_fits = 64 # 8 XGB + 1 logistic per fold; 1 logistic for historical diagnostics.
+max_trees = 160
+cpu_threads = 1
+
+[baselines]
+logistic_C = 1.0
+
+# Fixed recipe matches the current reference; never selected inside this study.
+[xgboost]
+n_estimators = 160
+max_depth = 2
+learning_rate = 0.03
+subsample = 0.85
+colsample_bytree = 0.85
+reg_lambda = 5.0
+min_child_weight = 10
+
+[bootstrap]
+samples = 1000
+block_lengths = [7, 30]
+confidence = 0.95
+seed = 42
+
+[acceptance]
+minimum_log_loss_gain = 0.001
+required_fold_fraction = 0.60
+
+[diagnostics]
+historical_train_validation_test = true
+reuse_smc_development_scores = true

@@ -1,0 +1,81 @@
+[research]
+reference_versions = ["v20261012T130540_d2bb6ac0", "v20261012T131650_5106daf4", "v20261012T134917_f88d6f93"]
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01", "2025-01-01", "2025-06-05"]
+historical_end = "2026-10-01"
+seed = 42
+max_fits = 24
+max_policies = 10
+# Primary comparison fixed in advance, irrespective of historical test outcomes.
+primary_reference = "v20261012T130540_d2bb6ac0"
+primary_policy = "combined_25"
+
+[costs]
+# Match original registered backtests (30 bps approximate round trip).
+commission_bps = 10.0
+slippage_bps = 5.0
+spread_bps = 0.0
+annual_holding_bps = 0.0
+annual_cash_rate = 0.0
+initial_capital = 10000.0
+
+[stress]
+cost_multiplier = 2.0
+
+[[policies]]
+name = "original"
+
+[[policies]]
+name = "cap_10"
+capital_cap = 0.10
+
+[[policies]]
+name = "cap_25"
+capital_cap = 0.25
+
+[[policies]]
+name = "cap_50"
+capital_cap = 0.50
+
+[[policies]]
+name = "vol_50"
+capital_cap = 0.50
+sizing = "volatility"
+
+[[policies]]
+name = "atr_50"
+capital_cap = 0.50
+sizing = "atr"
+
+[[policies]]
+name = "atr_stop_50"
+capital_cap = 0.50
+sizing = "atr"
+atr_stop = true
+
+[[policies]]
+name = "dd_50"
+capital_cap = 0.50
+soft_drawdown = 0.05
+hard_drawdown = 0.10
+
+[[policies]]
+name = "persistence_25"
+capital_cap = 0.25
+persistent = true
+confirmations = 2
+cooldown_bars = 2
+exit_threshold = 0.50
+max_holding_bars = 5
+
+[[policies]]
+name = "combined_25"
+capital_cap = 0.25
+sizing = "combined"
+atr_stop = true
+soft_drawdown = 0.05
+hard_drawdown = 0.10
+persistent = true
+confirmations = 2
+cooldown_bars = 2
+exit_threshold = 0.50
+max_holding_bars = 5

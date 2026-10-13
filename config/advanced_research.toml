@@ -1,0 +1,188 @@
+# Preregistered bounded hypotheses, never a search on the audited 19 trades.
+[research]
+reference_version = "v20261012T130540_d2bb6ac0"
+reference_risk_study = "artifacts/risk_studies/20261013T221816_a8b7d443"
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01", "2025-01-01", "2025-06-05"]
+meta_seed_boundaries = ["2021-01-01", "2021-07-01", "2022-01-01"]
+observed_end = "2026-10-01"
+calibration_days = 90
+rolling_days = 730
+minimum_train_rows = 240
+minimum_meta_rows = 30
+seed = 42
+
+[budget]
+max_fits = 210
+max_recipes = 19
+max_trees = 160
+cpu_threads = 1
+
+[costs]
+commission_bps = 10.0
+slippage_bps = 5.0
+spread_bps = 0.0
+annual_holding_bps = 0.0
+annual_cash_rate = 0.0
+initial_capital = 10000.0
+
+[policy]
+name = "combined_25"
+capital_cap = 0.25
+sizing = "combined"
+atr_stop = true
+soft_drawdown = 0.05
+hard_drawdown = 0.10
+persistent = true
+confirmations = 2
+cooldown_bars = 2
+exit_threshold = 0.50
+max_holding_bars = 5
+
+[filters]
+entry_thresholds = [0.55, 0.60]
+meta_threshold = 0.55
+minimum_expected_net_return = 0.0
+expectation_se_multiplier = 1.645
+
+[logistic]
+C = 1.0
+max_iter = 2000
+
+[xgboost_reference]
+n_estimators = 160
+max_depth = 2
+learning_rate = 0.03
+subsample = 0.85
+colsample_bytree = 0.85
+reg_lambda = 5.0
+min_child_weight = 10
+
+[xgboost_regularized]
+n_estimators = 160
+max_depth = 2
+learning_rate = 0.03
+subsample = 0.85
+colsample_bytree = 0.85
+reg_lambda = 20.0
+min_child_weight = 20
+
+[bootstrap]
+samples = 2000
+block_lengths = [7, 30]
+confidence = 0.95
+seed = 42
+
+[acceptance]
+minimum_log_loss_gain = 0.003
+minimum_auc_gain = 0.005
+required_fold_fraction = 0.60
+minimum_trades = 30
+minimum_coverage_vs_reference = 0.25
+require_positive_net_return = true
+require_positive_risk_budget_gain = true
+
+[[recipes]]
+id = "original_refit"
+family = "original"
+target = "direction_h1"
+
+[[recipes]]
+id = "core_deduplicated"
+family = "core"
+target = "direction_h1"
+
+[[recipes]]
+id = "momentum"
+family = "momentum"
+target = "direction_h1"
+
+[[recipes]]
+id = "mean_reversion"
+family = "reversion"
+target = "direction_h1"
+
+[[recipes]]
+id = "volatility_breakout"
+family = "breakout"
+target = "direction_h1"
+
+[[recipes]]
+id = "order_flow"
+family = "flow"
+target = "direction_h1"
+
+[[recipes]]
+id = "smc"
+family = "smc"
+target = "direction_h1"
+
+[[recipes]]
+id = "flow_momentum"
+family = "flow_momentum"
+target = "direction_h1"
+
+[[recipes]]
+id = "regularized"
+family = "flow_momentum"
+target = "direction_h1"
+parameters = "regularized"
+
+[[recipes]]
+id = "rolling_730"
+family = "flow_momentum"
+target = "direction_h1"
+parameters = "regularized"
+rolling = true
+
+[[recipes]]
+id = "calibration_raw_control"
+family = "flow_momentum"
+target = "direction_h1"
+parameters = "regularized"
+reserve_calibration = true
+
+[[recipes]]
+id = "calibrated"
+family = "flow_momentum"
+target = "direction_h1"
+parameters = "regularized"
+reserve_calibration = true
+calibrated = true
+reuse_model = "calibration_raw_control"
+
+[[recipes]]
+id = "depth_3"
+family = "flow_momentum"
+target = "direction_h1"
+parameters = "regularized"
+depth = 3
+
+[[recipes]]
+id = "net_h3_reference"
+family = "original"
+target = "net_h3"
+
+[[recipes]]
+id = "net_h3_flow"
+family = "flow_momentum"
+target = "net_h3"
+parameters = "regularized"
+
+[[recipes]]
+id = "net_h5_reference"
+family = "original"
+target = "net_h5"
+
+[[recipes]]
+id = "net_h5_flow"
+family = "flow_momentum"
+target = "net_h5"
+parameters = "regularized"
+
+[[recipes]]
+id = "return_magnitude_h3"
+family = "flow_momentum"
+target = "net_h3"
+parameters = "regularized"
+regression = true
+reserve_calibration = true

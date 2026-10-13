@@ -36,7 +36,7 @@ COLUMNS = [
 ]
 
 
-def parse_archive(payload: bytes) -> pd.DataFrame:
+def parse_archive(payload: bytes, *, include_microstructure: bool = False) -> pd.DataFrame:
     """Lee un ZIP sin extraerlo; reconoce milisegundos y microsegundos."""
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         names = [name for name in archive.namelist() if name.endswith(".csv")]
@@ -46,7 +46,10 @@ def parse_archive(payload: bytes) -> pd.DataFrame:
     ticks = pd.to_numeric(frame["timestamp"], errors="raise")
     unit = "us" if ticks.median() > 100_000_000_000_000 else "ms"
     frame["timestamp"] = pd.to_datetime(ticks, unit=unit, utc=True)
-    return frame[["timestamp", "open", "high", "low", "close", "volume"]]
+    columns = ["timestamp", "open", "high", "low", "close", "volume"]
+    if include_microstructure:
+        columns += ["quote_volume", "trades", "taker_base", "taker_quote"]
+    return frame[columns]
 
 
 def _month(settings: Settings, month: str, refresh: bool) -> tuple[pd.DataFrame, dict[str, Any]]:

@@ -6,7 +6,7 @@ No interpreta la comparación como evidencia prospectiva ni elige un ganador.
 
 from dataclasses import replace
 
-from trading_ml.common import read_json, write_json
+from trading_ml.common import write_json
 from trading_ml.config import load_settings
 from trading_ml.data import download
 from trading_ml.evaluation.comparison import compare
@@ -17,7 +17,7 @@ from trading_ml.training import retrain, train
 
 def main() -> None:
     settings = load_settings()
-    initial_version = read_json(settings.root / "models" / "latest.json")["version"]
+    initial_version = load_model(settings.root).metadata["version"]
     earlier = replace(settings, market=replace(settings.market, end="2026-07-01"))
     raw = download(earlier, settings.root / "data" / "snapshot_raw.csv")
     dataset = prepare(earlier, raw, settings.root / "data" / "snapshot_prepared.csv")

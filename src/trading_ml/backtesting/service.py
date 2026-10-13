@@ -7,6 +7,7 @@ import pandas as pd
 from trading_ml.backtesting.simulator import BacktestResult, simulate
 from trading_ml.common import write_json
 from trading_ml.config.settings import Backtest
+from trading_ml.errors import DataError
 from trading_ml.evaluation.service import out_of_sample
 from trading_ml.models import ModelBundle
 from trading_ml.preprocessing import load_prepared
@@ -19,7 +20,12 @@ def backtest(
     test = out_of_sample(bundle, frame)
     signals = test[["timestamp", "reference_time"]].copy()
     signals["probability_up"] = bundle.probabilities(test)
-    costs = costs or Backtest(**bundle.metadata["config"]["backtest"])
+    registered_costs = Backtest(**bundle.metadata["config"]["backtest"])
+    if costs is not None and costs != registered_costs:
+        raise DataError(
+            "Los costos y umbral deben coincidir con el experimento registrado; usá simulate para escenarios independientes"
+        )
+    costs = registered_costs
     result = simulate(
         frame,
         signals,

@@ -2,6 +2,8 @@
 
 Motor Python independiente para investigación: descarga OHLCV reales, valida datos, construye indicadores causales, entrena XGBoost, evalúa fuera de muestra y simula una estrategia con costos. No requiere frontend, backend propio ni credenciales. No coloca órdenes.
 
+La evaluación predictiva incorpora p=0,5, prevalencia histórica y logística L2, bootstrap por bloques y ablaciones fijas. `train` informa y conserva los candidatos rechazados por baselines; su promoción queda bloqueada. `predictive-study` genera comparaciones reproducibles sin optimizar el test observado ni promover modelos. Protocolo, resultados positivos/negativos y límites en [PREDICTIVE_EVALUATION.md](PREDICTIVE_EVALUATION.md).
+
 Se ejecutó con BTCUSDT diario, datos de 2020-01-01 a 2026-09-30. El primer modelo obtuvo ROC-AUC 0.4787 y el backtest perdió 45.32% después de costos. Estos resultados no justifican usar esta estrategia para operar. Ver [EXPERIMENTS.md](EXPERIMENTS.md) para la evidencia completa.
 
 ## Instalación
@@ -45,24 +47,30 @@ La descarga cubre meses cerrados. `end` no puede superar el primer día del mes 
 # 2. Limpiar, validar y construir features/etiquetas
 .\.venv\Scripts\python.exe -m trading_ml process
 
-# 3. Entrenar, seleccionar con validación y evaluar test
-.\.venv\Scripts\python.exe -m trading_ml train
+# 3. Entrenar/seleccionar en pasado y registrar un candidato inactivo
+$trainingResult = .\.venv\Scripts\python.exe -m trading_ml train | ConvertFrom-Json
+$candidateVersion = $trainingResult.model_version
 
 # 4. Cargar y evaluar sólo observaciones posteriores a entrenamiento/selección
-.\.venv\Scripts\python.exe -m trading_ml evaluate --version latest --output artifacts/reports/evaluation.json
+.\.venv\Scripts\python.exe -m trading_ml evaluate --version $candidateVersion --output "artifacts/reports/$candidateVersion/evaluation.json"
 
 # 5. Predecir la última vela cerrada del dataset
-.\.venv\Scripts\python.exe -m trading_ml predict --version latest --output artifacts/reports/prediction.json
+.\.venv\Scripts\python.exe -m trading_ml predict --version $candidateVersion --output "artifacts/reports/$candidateVersion/prediction.json"
 # También acepta --reference 2026-10-01T00:00:00Z
 
 # 6. Backtest long/cash; se guardan resumen, trades y equity
-.\.venv\Scripts\python.exe -m trading_ml backtest --version latest
+.\.venv\Scripts\python.exe -m trading_ml backtest --version $candidateVersion
 
-# 7. Reentrenar con un dataset ampliado, luego de extender market.end, descargar y procesar
-.\.venv\Scripts\python.exe -m trading_ml retrain --version latest --data artifacts/data/prepared.csv
+# 7. Ampliar el histórico hacia archivos nuevos, preservando el snapshot del padre
+# config/expanded.toml debe conservar contrato/start y extender market.end
+.\.venv\Scripts\python.exe -m trading_ml --config config/expanded.toml download --output artifacts/data/expanded_raw.csv
+.\.venv\Scripts\python.exe -m trading_ml --config config/expanded.toml process --input artifacts/data/expanded_raw.csv --output artifacts/data/expanded_prepared.csv
+.\.venv\Scripts\python.exe -m trading_ml retrain --version latest --data artifacts/data/expanded_prepared.csv
 ```
 
-El último comando rechaza un dataset sin nuevas velas. Si el último mes disponible ya está descargado, no hay datos más nuevos que incorporar aún. Para verificar el mecanismo hoy con dos cortes históricos reales:
+`train` y `retrain` conservan el modelo activo. Para inspeccionar un candidato usar su ID explícito. `latest`, `active` y `champion` resuelven `models/active.json` cuando existe; los punteros históricos siguen disponibles como compatibilidad. La activación exige una decisión explícita y un informe íntegro generado con `evaluate --output`; ver [MODEL_LIFECYCLE.md](MODEL_LIFECYCLE.md). No se activa ningún candidato por ejecutar el pipeline u optimizar.
+
+El último comando rechaza un dataset sin nuevas velas y exige conservar el snapshot del padre. Si el último mes disponible ya está descargado, no hay datos más nuevos que incorporar aún. Para verificar el mecanismo hoy con dos cortes históricos reales:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/run_retraining_demo.py
@@ -70,7 +78,7 @@ $retrainingDemo = Get-Content artifacts/reports/retraining_demo.json -Raw -Encod
 .\.venv\Scripts\python.exe -m trading_ml compare --versions $retrainingDemo.parent_version $retrainingDemo.retrained_version --output artifacts/reports/comparison.json
 ```
 
-La demostración usa un corte anterior a julio de 2026 y luego incorpora julio-septiembre. Crea nuevas versiones y actualiza `latest`; consultar `artifacts/reports/retraining_demo.json` para los IDs de cada ejecución. `compare` usa las mismas filas posteriores a la selección de **todos** los modelos. Comparar tests distintos produciría una comparación engañosa.
+La demostración usa un corte anterior a julio de 2026 y luego incorpora julio-septiembre. Crea candidatos sin activarlos; consultar `artifacts/reports/retraining_demo.json` para los IDs de cada ejecución. `compare` usa las mismas filas posteriores a la selección de **todos** los modelos. Comparar tests distintos produciría una comparación engañosa.
 
 Pipeline completo, con un manifiesto JSON de resultados, entorno y procedencia:
 
@@ -114,8 +122,11 @@ Esto supone ejecución en la siguiente apertura sin latencia adicional, capital 
 ```text
 artifacts/cache/                 ZIP originales + checksums
 artifacts/data/                  CSV crudo/preparado y manifiestos
-artifacts/models/<version>/      model.ubj, metadata.json, test_metrics.json, test_predictions.csv
-artifacts/models/latest.json     puntero a la versión más reciente
+artifacts/models/<version>/      model.ubj, metadata.json, test_metrics.json, data/prepared.csv y manifiesto
+artifacts/models/active.json     puntero único de activación explícita
+artifacts/models/latest.json     puntero histórico de compatibilidad
+artifacts/evaluations/           recibos de evaluaciones registrados sin sobrescritura
+artifacts/promotions/            decisiones explícitas de activación
 artifacts/reports/<version>/     evaluación, predicción y backtest
 ```
 
@@ -126,8 +137,10 @@ Los artefactos están excluidos de Git para evitar incorporar grandes datasets; 
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m pip check
-# Conserva la salida de todos los controles en artifacts/verification/checks.json:
+# Conserva cada ejecución nueva en artifacts/verification/runs/<id>.json:
 .\.venv\Scripts\python.exe scripts/verify.py
+# Comprueba también la ronda histórica sin reescribir datasets/metadatos:
+.\.venv\Scripts\python.exe scripts/verify.py --study artifacts/recent_retraining/20261012_short
 ```
 
 Las pruebas usan datos sintéticos únicamente para verificar invariantes y errores; las métricas experimentales se obtuvieron de históricos reales. Detalles del diseño en [ARCHITECTURE.md](ARCHITECTURE.md), estado y próximas etapas en [ROADMAP.md](ROADMAP.md).
@@ -207,3 +220,51 @@ Cuando los archivos mensuales necesarios estén publicados, copiar `config/defau
 ```
 
 Ese comando verifica integridad, conservación exacta del histórico, ventana completa y etiquetas/aperturas de salida; evalúa original guardado, reglas fijas y candidato congelado. No entrena, recalibra, elige candidatos ni promueve. Con una ventana parcial falla explícitamente y no produce métricas finales. Sus fechas de ajuste pueden diferir entre versiones; el control S2 de desarrollo, con train idéntico, sirve para estudiar el aporte específico de las features.
+
+## Momentum experimental independiente
+
+El paquete `trading_ml.momentum` agrega features causales, una estrategia long/efectivo con permanencia según tendencia y una variante donde XGBoost filtra las mismas oportunidades. Conserva las features, reglas, modelos y punteros actuales. El protocolo fija cuatro horizontes (20/60/120/250 velas), sin grilla ni elección del mejor test. Incluye costos por lado, spread, stress con costos duplicados, siete ventanas temporales, comparación con tres modelos actuales, buy and hold y efectivo, análisis por régimen y trimestre, y bootstrap pareado por bloques con corrección de comparaciones múltiples.
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_ml momentum-study --protocol config/momentum_study.toml
+# Registrar un informe existente; no vuelve a entrenar:
+.\.venv\Scripts\python.exe scripts/record_momentum_study.py artifacts/momentum_studies/20261013T215021_338a147b
+```
+
+El estudio real conserva **212 registros y 45 ajustes XGBoost por ejecución** en `artifacts/momentum_studies/<run_id>/`, incluyendo abstenciones y pérdidas. Ninguna variante demostró ventaja bajo los criterios fijados. En el historial posterior a desarrollo, las reglas perdieron entre 6,92% y 20,77% neto; el filtro ML no demostró una mejora consistente. Los modelos Momentum para una reserva futura de 180 días quedaron congelados sin activación; el guard de entrenamiento protege sus etiquetas. Ese test todavía está pendiente.
+
+Protocolo, resultados completos, costos, limitaciones y API reutilizable para adaptadores de Forex/cripto/futuros en [MOMENTUM_RESEARCH.md](MOMENTUM_RESEARCH.md). Las fechas de esa reserva y las de SMC son distintas y están registradas en sus respectivos planes. Todo el módulo trabaja offline y no envía órdenes.
+
+## Mean Reversion experimental
+
+`trading_ml.mean_reversion` incorpora z-score respecto de la media y desviación de las velas anteriores, RSI, volatilidad, ATR y estadísticas de retornos. Compara reglas, regresión logística L2 con scaler temporal y XGBoost sobre las mismas oportunidades. El protocolo fija ventanas de 20/60 velas y filtros de todos los regímenes/sólo lateral, sin búsqueda de umbrales en test.
+
+El objetivo de reversión queda anclado a la media conocida en la señal. Una operación sale por objetivo, stop al cierre o timeout de 10 velas; las etiquetas distinguen estos desenlaces y conservan los casos censurados. La asignación máxima es 50% y el sizing usa un presupuesto previsto de pérdida de 1%, incluidos costos; los gaps pueden superar ese presupuesto y se registran. Se ejecuta en la próxima apertura, sin apalancamiento ni promediar pérdidas. El filtro ML estima alcanzar el objetivo dentro del plazo, no una ganancia neta garantizada.
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_ml mean-reversion-study --protocol config/mean_reversion_study.toml
+# Publicar documentación de la ejecución existente, sin entrenar:
+.\.venv\Scripts\python.exe scripts/record_mean_reversion_study.py artifacts/mean_reversion_studies/20261013T220145_a6d4131b
+```
+
+La ejecución real conserva **232 registros y 68 ajustes** en `artifacts/mean_reversion_studies/<run_id>/`. Ninguna variante cumple todos los criterios estadísticos. En el historial posterior a desarrollo las reglas pierden entre 3,35% y 5,63% neto; los filtros permanecen en efectivo. El 0% de esos filtros no demuestra una ventaja frente a efectivo. No se modificaron modelos ni punteros existentes, verificados por hash.
+
+Frecuencia de oportunidades, expectativa, drawdown, turnover, tasas de reversión, métricas probabilísticas, regímenes, estabilidad trimestral y bootstrap temporal corregido por comparaciones múltiples en [MEAN_REVERSION_RESEARCH.md](MEAN_REVERSION_RESEARCH.md). Se congelan todas las variantes para una reserva futura protegida; la evaluación independiente permanece pendiente. Los módulos se pueden reutilizar con adaptadores de otros mercados y no contienen envío de órdenes.
+
+## Políticas experimentales de gestión de riesgo
+
+`trading_ml.risk_overlay` compara diez políticas fijas sobre los tres modelos registrados: original, caps de 10/25/50%, sizing por volatilidad y ATR, stop de ATR al cierre, reducción/pausa por drawdown, persistencia/cooldown y una combinación. Mantiene las mismas probabilidades en todas las políticas. No cambia estrategias, modelos ni reservas existentes.
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_ml risk-study --protocol config/risk_study.toml
+# Documentar resultados existentes; no vuelve a evaluar ni entrenar:
+.\.venv\Scripts\python.exe scripts/record_risk_study.py artifacts/risk_studies/20261013T221816_a8b7d443
+```
+
+La comparación principal fue fijada como `combined_25` sobre el modelo original antes de evaluar el historial final. En BTC diario, 2025-06-05 a 2026-09-30, el resultado es **MIXTO**: neto −45,32% → −1,51%, drawdown −46,89% → −2,37%, exposición media del capital 24,07% → 1,55%, operaciones 116 → 19 y costos de ejecución 2.745,29 → 59,68 sobre capital inicial de 10.000. La mejora proviene principalmente de menos exposición y rotación; efectivo sigue siendo superior y las probabilidades originales no mejoraron.
+
+Los controles estáticos 10/25/50% retornaron −5,51%/−13,33%/−25,27% neto en el mismo historial, sin cambiar entradas o salidas. El control adicional de exposición usa exclusivamente desarrollo para fijar su cap. La combinación pierde 5,91% en desarrollo, con sólo dos de siete folds positivos; no se presenta como una estrategia rentable validada.
+
+Se conservan **518 registros y 21 refits temporales de XGBoost**, más la calibración temporal de la referencia SMC, en `artifacts/risk_studies/<run_id>/`. El libro bruto repite las decisiones y fracciones del neto, eliminando únicamente fricción de ejecución. Los stops y límites de drawdown usan cierres conocidos y ejecutan en la apertura siguiente; no prometen fills intravela ni límites garantizados ante gaps. Las políticas se guardan sin activación. Modelos, punteros y reservas prospectivas se verificaron por hash y permanecen intactos.
+
+Auditoría, Profit Factor, bruto/neto, exposición temporal, costos, estabilidad y API en [RISK_RESEARCH.md](RISK_RESEARCH.md). El estudio no evalúa ni modifica el conjunto prospectivo reservado, y no envía órdenes.

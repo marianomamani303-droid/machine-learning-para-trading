@@ -83,8 +83,8 @@ def evaluate_smc_prospective(
     rule_path = prepare(rule_settings, source, output / "rules_prepared.csv", now=now)
     rule_frame, _ = load_prepared(rule_path)
     rule_test = rule_frame.loc[rule_frame.reference_time.isin(test.reference_time)]
-    rule_probability, rule_state = rule_probabilities(rule_test)
     threshold = plan["protocol"]["signals"]["threshold"]
+    rule_probability, rule_state = rule_probabilities(rule_test, threshold)
     comparison = {}
     for name, probability, states in [
         ("original", previous.probabilities(test), None),

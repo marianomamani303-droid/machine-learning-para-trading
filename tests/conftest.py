@@ -58,3 +58,22 @@ def config(tmp_path):
 @pytest.fixture
 def prepared(config, raw):
     return prepare(config, raw_file(config, raw))
+
+
+@pytest.fixture
+def accepted_training(monkeypatch):
+    """Isolate lifecycle success tests from predictive quality, tested separately."""
+    import trading_ml.training.pipeline as pipeline
+
+    original = pipeline.validation_baseline_report
+
+    def report(*args, **kwargs):
+        result = original(*args, **kwargs)
+        result["decision"] = {
+            "accepted": True,
+            "status": "synthetic_lifecycle_override",
+            "test_used": False,
+        }
+        return result
+
+    monkeypatch.setattr(pipeline, "validation_baseline_report", report)

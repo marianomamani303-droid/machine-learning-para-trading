@@ -13,6 +13,7 @@ from trading_ml.errors import DataError, LeakageError
 from trading_ml.evaluation import classification_metrics, evaluate
 from trading_ml.evaluation.comparison import compare
 from trading_ml.models import load_model
+from trading_ml.models.lifecycle import promote
 from trading_ml.prediction import predict
 from trading_ml.preprocessing import load_prepared, prepare
 from trading_ml.training import retrain, train
@@ -42,7 +43,7 @@ def test_metrics_single_class_and_calibration():
         classification_metrics(np.array([0, 1]), np.array([0.1, np.nan]))
 
 
-def test_full_pipeline_persistence_and_reproducibility(config, prepared):
+def test_full_pipeline_persistence_and_reproducibility(config, prepared, accepted_training):
     first = train(config, prepared)
     second = train(config, prepared)
     assert first != second
@@ -51,8 +52,11 @@ def test_full_pipeline_persistence_and_reproducibility(config, prepared):
     frame, _ = load_prepared(prepared)
     np.testing.assert_array_equal(a.probabilities(frame), b.probabilities(frame))
     assert sha256(a.directory / "model.ubj") == sha256(b.directory / "model.ubj")
-    report = evaluate(a, prepared)
-    assert report["metrics"] == a.metadata["test_metrics"]
+    report_path = config.root / "evaluation.json"
+    report = evaluate(a, prepared, report_path)
+    assert a.metadata["test_metrics"] == {"status": "not_evaluated"}
+    assert report["metrics"]["rows"] == a.metadata["splits"]["test"]["rows"]
+    promote(config.root, first, report_path, "Synthetic lifecycle test")
     prediction = predict(a, prepared, now=pd.Timestamp("2021-08-24", tz="UTC"))
     assert prediction["probability_up"] + prediction["probability_down"] == pytest.approx(1)
     assert prediction["asset"] == "BTCUSDT"
@@ -65,19 +69,21 @@ def test_full_pipeline_persistence_and_reproducibility(config, prepared):
     assert result.equity.equity.iloc[0] == 10000
     comparison = compare(config.root, prepared, [first, second])
     assert comparison["models"][0]["metrics"] == comparison["models"][1]["metrics"]
-    assert load_model(config.root).metadata["version"] == second
+    assert load_model(config.root).metadata["version"] == first
     with pytest.raises(DataError, match="más recientes"):
         retrain(config.root, prepared)
     with pytest.raises(DataError, match="Versión"):
         load_model(config.root, "../escape")
 
 
-def test_retraining_requires_and_uses_new_data(config, prepared):
+def test_retraining_requires_and_uses_new_data(config, prepared, raw):
     from conftest import candles, raw_file
 
     old = train(config, prepared)
     newer_config = replace(config, market=replace(config.market, end="2021-12-01"))
-    newer = prepare(newer_config, raw_file(newer_config, candles(700)))
+    expanded = candles(700)
+    expanded.iloc[: len(raw)] = raw.to_numpy()
+    newer = prepare(newer_config, raw_file(newer_config, expanded), config.root / "expanded.csv")
     new = retrain(config.root, newer, old)
     bundle = load_model(config.root, new)
     assert bundle.metadata["parent_version"] == old

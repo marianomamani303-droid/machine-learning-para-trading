@@ -6,9 +6,11 @@ import pytest
 
 from trading_ml.config import Settings
 from trading_ml.errors import DataError, LeakageError
+from trading_ml.evaluation import evaluate
 from trading_ml.evaluation.selection import Acceptance, assess_consistency
 from trading_ml.features import build_features, feature_columns
 from trading_ml.models import load_model
+from trading_ml.models.lifecycle import promote
 from trading_ml.preprocessing import load_prepared, prepare
 from trading_ml.training import train
 from trading_ml.training.optimization import Experiment, evaluate_walk_forward, optimize
@@ -131,8 +133,11 @@ def test_acceptance_requires_consistency_not_one_lucky_fold():
         assess_consistency(reference, candidate, Acceptance())
 
 
-def test_optimization_budget_stop_and_champion_retained(config, prepared):
+def test_optimization_budget_stop_and_champion_retained(config, prepared, accepted_training):
     version = train(config, prepared)
+    evaluation_path = config.root / "reference_evaluation.json"
+    evaluate(load_model(config.root, version), prepared, evaluation_path)
+    promote(config.root, version, evaluation_path, "Synthetic reference")
     final = pd.Timestamp(
         load_model(config.root, version).metadata["splits"]["test"]["first_reference"]
     )

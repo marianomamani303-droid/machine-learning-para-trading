@@ -8,10 +8,12 @@ import pytest
 
 from trading_ml.common import read_json, sha256, sidecar, write_json
 from trading_ml.errors import DataError, LeakageError
+from trading_ml.evaluation import evaluate
 from trading_ml.evaluation.signals import signal_quality
 from trading_ml.features import feature_columns
 from trading_ml.models import load_model
 from trading_ml.models.calibration import apply_calibration, fit_sigmoid
+from trading_ml.models.lifecycle import promote
 from trading_ml.prediction.smc_analysis import analyze_smc
 from trading_ml.preprocessing import load_prepared, prepare
 from trading_ml.training import train
@@ -151,8 +153,13 @@ def test_excluded_test_cannot_affect_smc_fold_results(config, raw, kind):
     assert first == second
 
 
-def test_smc_study_training_inference_preservation_and_no_final(config, prepared):
+def test_smc_study_training_inference_preservation_and_no_final(
+    config, prepared, accepted_training
+):
     old = train(config, prepared)
+    evaluation_path = config.root / "reference_evaluation.json"
+    evaluate(load_model(config.root, old), prepared, evaluation_path)
+    promote(config.root, old, evaluation_path, "Synthetic reference")
     final = pd.Timestamp(load_model(config.root, old).metadata["splits"]["test"]["first_reference"])
     protocol = config.root / "smc.toml"
     write_protocol(protocol, final)

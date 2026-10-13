@@ -6,6 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
+from trading_ml.advanced_research.study import run_advanced_study
 from trading_ml.backtesting import backtest
 from trading_ml.common import read_json, write_json
 from trading_ml.config import load_settings
@@ -14,12 +15,17 @@ from trading_ml.errors import TradingMLError
 from trading_ml.evaluation import evaluate
 from trading_ml.evaluation.comparison import compare
 from trading_ml.evaluation.smc_prospective import evaluate_smc_prospective
+from trading_ml.mean_reversion.study import run_reversion_study
 from trading_ml.models import load_model
+from trading_ml.models.lifecycle import promote
+from trading_ml.momentum.study import run_momentum_study
 from trading_ml.prediction import predict
 from trading_ml.prediction.smc_analysis import analyze_smc
 from trading_ml.preprocessing import prepare
+from trading_ml.risk_overlay.study import run_risk_study
 from trading_ml.training import retrain, train
 from trading_ml.training.optimization import optimize
+from trading_ml.training.predictive_study import run_predictive_study
 from trading_ml.training.smc_study import run_smc_study
 
 
@@ -36,8 +42,14 @@ def parser() -> argparse.ArgumentParser:
     process = commands.add_parser("process", help="Validar y generar features/etiquetas")
     process.add_argument("--input", type=Path)
     process.add_argument("--output", type=Path)
-    fit = commands.add_parser("train", help="Entrenar y evaluar test temporal")
+    fit = commands.add_parser(
+        "train", help="Entrenar y registrar candidato sin evaluar test ni activar"
+    )
     fit.add_argument("--data", type=Path)
+    promotion = commands.add_parser("promote", help="Activar explícitamente una versión evaluada")
+    promotion.add_argument("--version", required=True)
+    promotion.add_argument("--evaluation", type=Path, required=True)
+    promotion.add_argument("--reason", required=True)
     for name in ["evaluate", "predict", "backtest", "retrain"]:
         command = commands.add_parser(name)
         command.add_argument("--data", type=Path)
@@ -55,11 +67,43 @@ def parser() -> argparse.ArgumentParser:
     )
     optimization.add_argument("--protocol", type=Path, default=Path("config/optimization.toml"))
     optimization.add_argument("--version", default="latest")
+    predictive = commands.add_parser(
+        "predictive-study", help="Baselines, ablaciones y bootstrap temporal sin promoción"
+    )
+    predictive.add_argument("--protocol", type=Path, default=Path("config/predictive_study.toml"))
+    predictive.add_argument("--version", default="latest")
     smc_study = commands.add_parser(
         "smc-study", help="Comparar original, SMC reglas y XGBoost+SMC sin tocar el test observado"
     )
     smc_study.add_argument("--protocol", type=Path, default=Path("config/smc_study.toml"))
     smc_study.add_argument("--version", default="latest")
+    momentum = commands.add_parser(
+        "momentum-study", help="Momentum reglas/XGBoost, horizontes fijos y costos sin promoción"
+    )
+    momentum.add_argument("--protocol", type=Path, default=Path("config/momentum_study.toml"))
+    momentum.add_argument("--raw", type=Path)
+    reversion = commands.add_parser(
+        "mean-reversion-study", help="Reversión: reglas, logística y XGBoost sin promoción"
+    )
+    reversion.add_argument(
+        "--protocol", type=Path, default=Path("config/mean_reversion_study.toml")
+    )
+    reversion.add_argument("--raw", type=Path)
+    risk = commands.add_parser(
+        "risk-study", help="Sizing, costos, stops y drawdown sin alterar estrategias"
+    )
+    risk.add_argument("--protocol", type=Path, default=Path("config/risk_study.toml"))
+    risk.add_argument("--raw", type=Path)
+    advanced = commands.add_parser(
+        "advanced-study", help="Investigación predictiva y meta-filtros con presupuesto cerrado"
+    )
+    advanced.add_argument("--protocol", type=Path, default=Path("config/advanced_research.toml"))
+    advanced.add_argument("--raw", type=Path)
+    advanced.add_argument(
+        "--cache-from",
+        type=Path,
+        help="Recuperar ajustes de una corrida técnica fallida del mismo protocolo",
+    )
     analysis = commands.add_parser(
         "smc-analyze",
         help="Analizar estructura y probabilidad con el candidato SMC de investigación",
@@ -91,9 +135,31 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "process":
             result = {"prepared_data": str(prepare(settings, args.input, args.output))}
         elif args.command == "train":
-            result = {"model_version": train(settings, dataset)}
+            version = train(settings, dataset)
+            result = {
+                "model_version": version,
+                "baseline_gate": load_model(settings.root, version).metadata["baseline_gate"],
+            }
         elif args.command == "retrain":
-            result = {"model_version": retrain(settings.root, dataset, args.version)}
+            version = retrain(settings.root, dataset, args.version)
+            result = {
+                "model_version": version,
+                "baseline_gate": load_model(settings.root, version).metadata["baseline_gate"],
+            }
+        elif args.command == "promote":
+            result = promote(settings.root, args.version, args.evaluation, args.reason)
+        elif args.command == "predictive-study":
+            report = run_predictive_study(settings, args.protocol, args.version)
+            result = {
+                "run_id": report["run_id"],
+                "directory": report["directory"],
+                "actual_fits": report["actual_fits"],
+                "models": {
+                    name: {"metrics": data["metrics"], "decision": data.get("decision")}
+                    for name, data in report["development"]["models"].items()
+                },
+                "promoted": False,
+            }
         elif args.command == "smc-study":
             report = run_smc_study(settings, args.protocol, args.version)
             result = {
@@ -111,6 +177,71 @@ def main(argv: list[str] | None = None) -> int:
                     "promoted",
                     "old_test_evaluated",
                     "prospective",
+                ]
+            }
+        elif args.command == "momentum-study":
+            report = run_momentum_study(settings, args.protocol, args.raw)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_xgboost_fits",
+                    "experiment_records",
+                    "independent_advantage_confirmed",
+                    "promoted",
+                    "live_trading",
+                    "prospective",
+                ]
+            }
+        elif args.command == "mean-reversion-study":
+            report = run_reversion_study(settings, args.protocol, args.raw)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "experiment_records",
+                    "existing_models_preserved",
+                    "independent_advantage_confirmed",
+                    "promoted",
+                    "live_trading",
+                    "prospective",
+                ]
+            }
+        elif args.command == "risk-study":
+            report = run_risk_study(settings, args.protocol, args.raw)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "experiment_records",
+                    "diagnosis",
+                    "existing_models_preserved",
+                    "prospective_unchanged",
+                    "prospective_evaluated",
+                    "promoted",
+                    "live_trading",
+                ]
+            }
+        elif args.command == "advanced-study":
+            report = run_advanced_study(settings, args.protocol, args.raw, args.cache_from)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "comparison",
+                    "actual_fits",
+                    "experiment_records",
+                    "existing_models_preserved",
+                    "prospective_unchanged",
+                    "prospective_evaluated",
+                    "promoted",
+                    "live_trading",
                 ]
             }
         elif args.command == "smc-analyze":
@@ -160,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.output
                     or settings.root / "reports" / bundle.metadata["version"] / "backtest"
                 )
-                result = backtest(bundle, dataset, settings.backtest, destination).summary
+                result = backtest(bundle, dataset, output=destination).summary
         print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except (TradingMLError, OSError, ValueError, KeyError, TypeError) as exc:

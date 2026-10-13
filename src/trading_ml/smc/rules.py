@@ -30,7 +30,9 @@ def directional_states(
     return result
 
 
-def rule_probabilities(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+def rule_probabilities(
+    frame: pd.DataFrame, threshold: float = 0.55
+) -> tuple[np.ndarray, np.ndarray]:
     """Confianza heurística, no frecuencia calibrada ni modelo aprendido.
 
     Suma evidencia actual; conflictos de direcciones y sólo tendencia abstienen.
@@ -48,4 +50,4 @@ def rule_probabilities(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     score = bull - bear + 0.5 * frame.smc_trend.to_numpy()
     eligible = (frame.smc_ready.to_numpy() > 0) & ((bull > 0) ^ (bear > 0)) & (np.abs(score) >= 1)
     probability = np.where(eligible, 0.5 + 0.1 * np.clip(score, -3, 3), 0.5)
-    return probability, directional_states(probability)
+    return probability, directional_states(probability, threshold)

@@ -26,6 +26,7 @@ from trading_ml.models.registry import publish_candidate
 from trading_ml.preprocessing import load_prepared, prepare
 from trading_ml.smc.detectors import SMCConfig
 from trading_ml.smc.rules import directional_states, rule_probabilities
+from trading_ml.training.recipe import protect_reserved_labels, temporal_recipe
 from trading_ml.training.walk_forward import (
     WalkForwardConfig,
     fit_temporal_model,
@@ -68,10 +69,12 @@ def fit_smc_model(
                 "last_target_time": calibration_frame.target_time.max().isoformat(),
                 "fit_last_target_time": fitting.target_time.max().isoformat(),
                 "disjoint_from_model_fit": True,
+                "calibration_data_sha256": frame_hash(calibration_frame),
             }
         )
         details["calibration"] = calibration
     details["all_known_labels_end"] = train.target_time.max().isoformat()
+    details["known_labels_sha256"] = frame_hash(train)
     return model, details, calibration
 
 
@@ -94,6 +97,7 @@ def evaluate_smc_recipe(
     reports = []
     predictions = []
     for fold in folds:
+        protect_reserved_labels(settings.root, fold.train)
         calibration = None
         details: dict[str, Any] = {
             "train_rows": len(fold.train),
@@ -102,7 +106,7 @@ def evaluate_smc_recipe(
         directory = destination / f"fold_{fold.number}"
         directory.mkdir(parents=True, exist_ok=True)
         if recipe["kind"] == "rules":
-            probability, states = rule_probabilities(fold.evaluation)
+            probability, states = rule_probabilities(fold.evaluation, threshold)
             calibration_status = "heuristic_uncalibrated"
         else:
             model, details, calibration = fit_smc_model(
@@ -157,7 +161,7 @@ def evaluate_smc_recipe(
                 "calibration_status": calibration_status,
                 "metrics": metrics,
                 "signal_quality": signal_quality(
-                    fold.evaluation.target.to_numpy(), probability, states
+                    fold.evaluation.target.to_numpy(), probability, states, threshold
                 ),
                 "backtest": simulation.summary,
             }
@@ -423,6 +427,7 @@ def run_smc_study(
         subset=["target", "target_time"]
     )
     columns = feature_columns(chosen_settings.features)
+    protect_reserved_labels(base.root, training)
     model, fitting, calibration = fit_smc_model(
         training,
         columns,
@@ -447,7 +452,15 @@ def run_smc_study(
             "selected_parameters": fitting["effective_parameters"],
             "fitting": fitting,
             "calibration": calibration,
-            "training_data_sha256": frame_hash(training),
+            "training_recipe": temporal_recipe(
+                chosen_settings,
+                chosen["parameters"],
+                wf,
+                chosen["early_stop"],
+                chosen["calibrated"],
+                calibration_days,
+            ),
+            "training_data_sha256": fitting["fit_data_sha256"],
             "prepared_sha256": provenance["sha256"],
             "raw_sha256": provenance["raw_sha256"],
             "dataset_path": str(chosen_dataset.resolve()),

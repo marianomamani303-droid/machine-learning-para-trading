@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import tomllib
 import uuid
 from dataclasses import asdict, dataclass, replace
@@ -24,6 +23,7 @@ from trading_ml.features import feature_columns
 from trading_ml.models import load_model
 from trading_ml.models.registry import publish_candidate
 from trading_ml.preprocessing import load_prepared, prepare
+from trading_ml.training.recipe import protect_reserved_labels, temporal_recipe
 from trading_ml.training.walk_forward import (
     WalkForwardConfig,
     fit_temporal_model,
@@ -131,6 +131,7 @@ def evaluate_walk_forward(
     reports = []
     predictions = []
     for fold in folds:
+        protect_reserved_labels(settings.root, fold.train)
         model, fitting = fit_temporal_model(
             fold.train,
             columns,
@@ -360,6 +361,7 @@ def optimize(
     rolling = selected["experiment"]["rolling_days"]
     if rolling is not None:
         train = train.loc[train.reference_time >= final_start - pd.Timedelta(days=rolling)]
+    protect_reserved_labels(settings.root, train)
     model, fitting = fit_temporal_model(
         train,
         columns,
@@ -416,7 +418,8 @@ def optimize(
         "net_return": after["backtest"]["strategy_metrics"]["cumulative_return"]
         >= before["backtest"]["strategy_metrics"]["cumulative_return"],
     }
-    promoted = bool(eligible) and all(final_checks.values())
+    promotion_eligible = bool(eligible) and all(final_checks.values())
+    promoted = False
     version_new = _publish_audit(
         model,
         settings.root,
@@ -429,6 +432,13 @@ def optimize(
             "features": columns,
             "selected_parameters": fitting["effective_parameters"],
             "fitting": fitting,
+            "training_recipe": temporal_recipe(
+                config,
+                selected["experiment"]["parameters"],
+                wf,
+                selected["experiment"]["early_stop"],
+                rolling_days=rolling,
+            ),
             "splits": {
                 "train": _bounds(train),
                 "validation": {"method": "purged_walk_forward", "folds": len(wf.boundaries) - 1},
@@ -449,19 +459,7 @@ def optimize(
             },
         },
     )
-    champion = version_new if promoted else previous.metadata["version"]
-    if promoted:
-        temporary = settings.root / "models" / f".latest_{uuid.uuid4().hex}.json"
-        write_json(temporary, {"version": champion})
-        os.replace(temporary, settings.root / "models" / "latest.json")
-    write_json(
-        settings.root / "models" / "champion.json",
-        {
-            "version": champion,
-            "run_id": run_id,
-            "criterion": "purged walk-forward consistency and single final confirmation; otherwise retain previous",
-        },
-    )
+    champion = previous.metadata["version"]
     summary = {
         "run_id": run_id,
         "directory": str(directory),
@@ -477,6 +475,7 @@ def optimize(
         "passed_walk_forward": bool(eligible),
         "final_checks": final_checks,
         "promoted": promoted,
+        "promotion_eligible": promotion_eligible,
         "final_test_previously_observed": True,
         "comparison": comparison,
         "experiments": reports,

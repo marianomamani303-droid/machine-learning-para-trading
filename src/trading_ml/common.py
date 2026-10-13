@@ -4,6 +4,7 @@ import hashlib
 import importlib.metadata
 import json
 import platform
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -46,3 +47,35 @@ def environment() -> dict[str, str]:
 
 def frame_hash(frame: pd.DataFrame) -> str:
     return hashlib.sha256(frame.to_csv(index=False, float_format="%.12g").encode()).hexdigest()
+
+
+def object_hash(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def write_new_json(path: Path, value: Any) -> None:
+    """Append-only evidence: never replace an existing experiment or report."""
+    payload = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(payload)
+
+
+def code_provenance() -> dict[str, Any]:
+    package = Path(__file__).resolve().parent
+    files = {str(p.relative_to(package)): sha256(p) for p in sorted(package.rglob("*.py"))}
+    result: dict[str, Any] = {"source_sha256": object_hash(files), "files": files}
+    try:
+        process = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=package,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        result["git_commit"] = process.stdout.strip() if process.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        result["git_commit"] = None
+    return result

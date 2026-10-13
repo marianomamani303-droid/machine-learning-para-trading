@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 from xgboost import XGBClassifier
 
+from trading_ml.common import frame_hash
 from trading_ml.errors import DataError, LeakageError
 
 
@@ -116,6 +117,7 @@ def fit_temporal_model(
         "train_rows": len(train),
         "train_last_target": train.target_time.max().isoformat(),
         "early_stopping": early_stop,
+        "fit_data_sha256": frame_hash(train),
     }
     if early_stop:
         inner_start = train.reference_time.max() - pd.Timedelta(days=config.inner_validation_days)
@@ -145,6 +147,8 @@ def fit_temporal_model(
                 "inner_validation_first_reference": validation.reference_time.min().isoformat(),
                 "inner_validation_last_target": validation.target_time.max().isoformat(),
                 "best_inner_log_loss": float(probe.best_score),
+                "inner_fit_sha256": frame_hash(fitting),
+                "inner_validation_sha256": frame_hash(validation),
             }
         )
     model = XGBClassifier(**chosen, **common)
