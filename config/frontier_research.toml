@@ -1,0 +1,63 @@
+[research]
+symbols = ["BTCUSDT", "ETHUSDT"]
+boundaries = ["2022-01-01", "2023-01-01", "2024-01-01", "2025-06-05"]
+historical_end = "2026-10-01"
+embargo_days = 6
+calibration_days = 120
+maximum_fits = 500
+thresholds = [0.55, 0.60]
+seed = 42
+prospective_start = "2027-04-13"
+prospective_end = "2027-10-13"
+
+[costs]
+commission_bps = 10.0
+slippage_bps = 5.0
+spread_bps = 2.0
+initial_capital = 10000.0
+
+[[recipes]]
+id = "logistic_local"
+kind = "logistic"
+features = "local"
+
+[[recipes]]
+id = "logistic_cross"
+kind = "logistic"
+features = "cross"
+
+[[recipes]]
+id = "xgboost_local"
+kind = "xgboost"
+features = "local"
+
+[[recipes]]
+id = "xgboost_cross"
+kind = "xgboost"
+features = "cross"
+
+[[recipes]]
+id = "xgboost_balanced_rolling"
+kind = "xgboost"
+features = "cross"
+rolling_days = 730
+balance = true
+[recipes.parameters]
+max_depth = 3
+reg_lambda = 20.0
+min_child_weight = 20
+
+[[recipes]]
+id = "random_forest_cross"
+kind = "random_forest"
+features = "cross"
+
+[[recipes]]
+id = "lightgbm_cross"
+kind = "lightgbm"
+features = "cross"
+
+[[recipes]]
+id = "catboost_cross"
+kind = "catboost"
+features = "cross"

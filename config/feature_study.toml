@@ -1,0 +1,32 @@
+# Fixed before running this new feature study. Previously inspected history is
+# research data, not an independent prospective test.
+[research]
+reference_version = "v20261012T130540_d2bb6ac0"
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2025-01-01", "2026-10-01"]
+inner_days = 120
+embargo_days = 6
+minimum_train_rows = 240
+maximum_fits = 650
+seed = 42
+secondary_seed = 1729
+correlation_threshold = 0.90
+inner_minimum_gain = 0.001
+compact_max_features = 20
+
+[importance]
+block_lengths = [7, 30]
+repeats = 8
+inner_repeats = 5
+
+[bootstrap]
+samples = 2000
+block_lengths = [7, 30]
+confidence = 0.95
+seed = 42
+
+[acceptance]
+minimum_log_loss_gain = 0.003
+minimum_auc_gain = 0.005
+required_fold_fraction = 0.6666666666666666
+require_both_assets = true
+require_secondary_seed = true

@@ -1,0 +1,5 @@
+# Optional adapters actually used in the multi-asset investigation.
+# Core dependencies remain in requirements-lock.txt.
+lightgbm==4.7.0
+catboost==1.2.10
+joblib==1.6.0

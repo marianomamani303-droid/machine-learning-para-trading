@@ -115,13 +115,18 @@ def protect_reserved_labels(root: Path, *frames: pd.DataFrame) -> None:
                     "end_reference_exclusive": future["end"],
                 }
             )
+    for path in (root / "frontier_studies").glob("*/prospective.json"):
+        future = read_json(path)
+        reservations.append(
+            {"first_reference": future["start"], "end_reference_exclusive": future["end"]}
+        )
     pointer = root / "smc_studies" / "latest.json"
     if pointer.exists():
         summary = read_json(Path(read_json(pointer)["summary"]))
         reservations.append(summary["prospective"])
     for reservation in reservations:
-        start = pd.Timestamp(reservation["first_reference"])
-        end = pd.Timestamp(reservation["end_reference_exclusive"])
+        start = pd.to_datetime(reservation["first_reference"], utc=True)
+        end = pd.to_datetime(reservation["end_reference_exclusive"], utc=True)
         for frame in frames:
             if ((frame.reference_time < end) & (frame.target_time >= start)).any():
                 raise LeakageError("El ajuste o la selección invade el test prospectivo reservado")

@@ -113,3 +113,9 @@ El plan congela una ventana nueva posterior al día UTC de ejecución. `prospect
 `evaluation/smc_prospective.py` sólo evalúa cuando todo el período, sus etiquetas y aperturas de salida están disponibles. Comprueba hash del plan, modelos/contratos y conservación exacta del histórico; exige todas las referencias reservadas. No refit, recalibración, selección ni promoción. Compara el original guardado, reglas fijas y candidato congelado: las fechas de ajuste de esas versiones pueden diferir; para atribución incremental se utiliza S2 con train igual en desarrollo.
 
 El período final real está pendiente. Se verificó el rechazo de datos actuales incompletos y el recorrido completo con una emulación sintética aislada y reloj inyectado en tests, separada de los artefactos reales. Artefactos: `artifacts/smc_studies/<run_id>/{plan,selection,summary,prospective}.json`, snapshot, datasets y modelos/predicciones/equity/trades por fold. Repetir el mismo estudio recupera resultados sin consumir nuevas recetas.
+
+## Mercado, proveedor y ejecución
+
+`trading_ml.multimarket` añade instrumentos, proveedores H1 bid/ask FXCM/Dukascopy y artefactos independientes. Reutiliza features de precio, kernel de barreras, métricas, calibración, baselines, bootstrap y protección de reservas. La función de features original incorpora `include_volume` opcional, True por defecto; Forex lo pasa como False para no inventar volumen.
+
+Las barras de señales y ejecución son distintas: Forex puede calcular features sobre H1/H4/D1 completo, pero toda entrada, stop, salida temporal y marca de equity recorre el H1 original. Excluir un bloque incompleto de features no elimina sus cotizaciones del backtest. `service.py` ofrece entrenamiento y carga por instrumento/intervalo, predicción sin labels y evaluación posterior al último resultado utilizado. No hay rutas de órdenes ni promoción al registro de producción. Detalles y contratos en [MULTIMARKET_RESEARCH.md](MULTIMARKET_RESEARCH.md).

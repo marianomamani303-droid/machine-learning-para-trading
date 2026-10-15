@@ -1,5 +1,9 @@
 # Motor de Machine Learning para trading
 
+Triple Barrier y Meta-Labeling se implementaron como experimentos independientes con costos y validación temporal: **486 ajustes, sin mejora consistente que justifique reemplazar el original**. Objetivos, ejecución, calibración, resultados positivos/negativos y reproducción en [TRIPLE_BARRIER_RESEARCH.md](TRIPLE_BARRIER_RESEARCH.md). Comando: `python -m trading_ml label-study --protocol config/label_study.toml`.
+
+La nueva auditoría de feature engineering incorpora selección temporal anidada, permutación por bloques, controles de redundancia y marcos semanales cerrados sobre BTC/ETH. **635 ajustes: ninguna mejora pasó los criterios; se conserva el original.** Resultados, pruebas de causalidad y reproducción en [FEATURE_ENGINEERING.md](FEATURE_ENGINEERING.md). Ejecutar `python -m trading_ml feature-study --protocol config/feature_study.toml`; las recetas de producción conservan sus contratos versionados.
+
 Motor Python independiente para investigación: descarga OHLCV reales, valida datos, construye indicadores causales, entrena XGBoost, evalúa fuera de muestra y simula una estrategia con costos. No requiere frontend, backend propio ni credenciales. No coloca órdenes.
 
 La evaluación predictiva incorpora p=0,5, prevalencia histórica y logística L2, bootstrap por bloques y ablaciones fijas. `train` informa y conserva los candidatos rechazados por baselines; su promoción queda bloqueada. `predictive-study` genera comparaciones reproducibles sin optimizar el test observado ni promover modelos. Protocolo, resultados positivos/negativos y límites en [PREDICTIVE_EVALUATION.md](PREDICTIVE_EVALUATION.md).
@@ -268,3 +272,43 @@ Los controles estáticos 10/25/50% retornaron −5,51%/−13,33%/−25,27% neto 
 Se conservan **518 registros y 21 refits temporales de XGBoost**, más la calibración temporal de la referencia SMC, en `artifacts/risk_studies/<run_id>/`. El libro bruto repite las decisiones y fracciones del neto, eliminando únicamente fricción de ejecución. Los stops y límites de drawdown usan cierres conocidos y ejecutan en la apertura siguiente; no prometen fills intravela ni límites garantizados ante gaps. Las políticas se guardan sin activación. Modelos, punteros y reservas prospectivas se verificaron por hash y permanecen intactos.
 
 Auditoría, Profit Factor, bruto/neto, exposición temporal, costos, estabilidad y API en [RISK_RESEARCH.md](RISK_RESEARCH.md). El estudio no evalúa ni modifica el conjunto prospectivo reservado, y no envía órdenes.
+
+## Investigación avanzada de features y filtros
+
+`trading_ml.advanced_research` recupera los campos de volumen taker y cantidad de trades de los ZIP ya verificados, compara familias de features y calibra/filtro oportunidades con datos temporales. La corrida completa `20261013T224826_25c6cac4` conserva 524 registros y carga 198 ajustes sobre un presupuesto de 210, incluyendo el fallo técnico anterior. Ninguna receta cumplió todos los criterios; la referencia defensiva permanece. El informe [ADVANCED_RESEARCH.md](ADVANCED_RESEARCH.md) distingue mejoras de log-loss, menor exposición y evidencia económica.
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_ml advanced-study --protocol config/advanced_research.toml
+```
+
+## Modelos multi-activo, embargo y test final sellado
+
+`trading_ml.frontier_research` incorpora ETH en un CSV separado con checksums Binance y features cruzadas disponibles al mismo cierre que BTC. Compara regresión logística, XGBoost, Random Forest, LightGBM, CatBoost, ensamble y stacking. Utiliza tres folds cronológicos, purga por disponibilidad de la etiqueta y embargo adicional de seis días. La calibración y el stacking usan una cola temporal ajena al ajuste de los modelos componentes. El entrenamiento no lee los conjuntos prospectivos reservados.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-research.txt
+.\.venv\Scripts\python.exe -m trading_ml frontier-study --protocol config/frontier_research.toml
+# Regenerar documentación de una corrida existente, sin ajustar modelos:
+.\.venv\Scripts\python.exe scripts/record_frontier_study.py artifacts/frontier_studies/20261014T134646_e17d06e3 --output artifacts/frontier_analyses/nuevo_informe
+```
+
+El protocolo prueba dirección a una vela, rentabilidad neta a tres y TP antes de SL supervisados al cierre con timeout de cinco velas. Se ejecuta siempre en una apertura posterior: los datos diarios no permiten inventar el orden de barreras intravela. También evalúa magnitud y retorno ajustado por volatilidad mediante regresión. Balanced accuracy, métricas probabilísticas, resultados por régimen, operaciones, PF monetario, capital medio y exposición temporal se registran por separado.
+
+La ejecución `20261014T134646_e17d06e3` conserva **892 registros, 381 ajustes nuevos y 453 ajustes cargados sobre un límite de 500**. Reutilizó 32 modelos con calibración del mismo protocolo; el total incluye un cargo conservador de 72 ajustes del primer prototipo abortado. Sus retornos están marcados inválidos por una máscara de ejecución dependiente del desenlace futuro. La corrección mantiene todas las predicciones causalmente disponibles y utiliza etiquetas solamente para scoring, sin modificar recetas.
+
+**Ninguna de las seis selecciones por activo/objetivo cumple todos los criterios.** Los candidatos de dirección permanecieron en efectivo durante el período posterior observado; ese 0% no acredita ventaja predictiva. La comparación histórica conserva los modelos registrados y se presenta como desarrollo, porque el histórico de BTC ya había sido observado. Informe completo, negativos, controles de exposición, regresiones y gráficos en [FRONTIER_RESEARCH.md](FRONTIER_RESEARCH.md).
+
+Se congelaron modelos y parámetros para una nueva ventana **2027-04-13 a 2027-10-13**, separada de las reservas anteriores. El test final permanece pendiente y bloqueado hasta su cierre. El comando exige CSV verificados desde el inicio histórico, reproduce el snapshot congelado y verifica cobertura completa; permite una sola apertura, sin entrenamiento, recalibración, selección ni promoción.
+
+```powershell
+# Únicamente después del cierre y con meses completos disponibles:
+.\.venv\Scripts\python.exe -m trading_ml frontier-future-evaluate --study artifacts/frontier_studies/20261014T134646_e17d06e3 --btc-raw artifacts/data/BTC_future.csv --eth-raw artifacts/data/ETH_future.csv
+```
+
+Los módulos continúan offline. Las estrategias, modelos originales y reservas existentes se verificaron por hash y siguen intactos. MIXTO identifica un diagnóstico de riesgo; no es una estrategia implementada. Con los pocos miles de observaciones diarias disponibles no se justificó añadir redes profundas.
+
+## Forex y motor multimercado
+
+Los comandos `market-download`, `market-study`, `market-train`, `market-predict`, `market-evaluate` y `market-backtest` agregan EUR/USD, USD/JPY, GBP/USD, USD/CHF y AUD/USD, conservando BTC/USDT y ETH/USDT. Datos Forex H1 bid/ask de FXCM por HTTPS y adaptador alternativo Dukascopy, snapshots UTC, H1/H4/D1, sesiones de Nueva York con DST y ejecución sobre H1 aun cuando el modelo usa velas agregadas. Cada activo tiene modelos y resultados independientes en `artifacts/multimarket/`.
+
+El estudio compara dirección, rentabilidad neta, Triple Barrier y meta-labeling OOF con costos, calibración temporal, ablaciones y baselines. Primero se exige el piloto EURUSD; luego se habilita la comparación con los otros activos. No modifica producción ni envía órdenes. La investigación de proveedores, los supuestos de ejecución, las limitaciones de licencia/transporte y todos los comandos están en [MULTIMARKET_RESEARCH.md](MULTIMARKET_RESEARCH.md).

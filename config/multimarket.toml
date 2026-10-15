@@ -1,0 +1,39 @@
+schema = 1
+forex_provider = "fxcm"
+# HTTPS on this host times out; explicit legacy HTTP transport for this research.
+# Hashes detect local changes, not an altered response in transit.
+dukascopy_transport = "http"
+start = "2020-01-01"
+end = "2026-10-01"
+# Historical data were already explored in this project: these are retrospective
+# walk-forward evaluations, not a pristine final test. Existing future seals stay closed.
+boundaries = ["2022-01-01", "2023-01-01", "2024-01-01", "2025-01-01", "2025-07-01", "2026-01-01", "2026-10-01"]
+symbols = ["EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSDT", "ETHUSDT"]
+intervals = ["1d"]
+pilot_intervals = ["1d", "4h", "1h"]
+seed = 42
+embargo_days = 7
+calibration_days = 180
+min_train_rows = 180
+bootstrap_samples = 500
+bootstrap_blocks = [7, 30]
+
+[model]
+n_estimators = 160
+max_depth = 3
+learning_rate = 0.03
+subsample = 0.85
+colsample_bytree = 0.85
+reg_lambda = 5.0
+min_child_weight = 10
+
+[costs]
+forex_commission_bps = 0.35
+forex_slippage_pips = 0.1
+forex_swap_annual_bps = 100.0
+crypto_commission_bps = 10.0
+crypto_slippage_bps = 5.0
+risk_fraction = 0.01
+maximum_notional_fraction = 1.0
+maximum_entry_spread_pips = 5.0
+initial_capital = 10000.0

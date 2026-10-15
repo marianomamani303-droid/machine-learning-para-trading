@@ -36,6 +36,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--config", type=Path, default=Path("config/default.toml"))
     result.add_argument("--verbose", action="store_true")
     commands = result.add_subparsers(dest="command", required=True)
+    from trading_ml.multimarket.cli import add_commands
+
+    add_commands(commands)
     fetch = commands.add_parser("download", help="Descargar meses cerrados con checksum")
     fetch.add_argument("--output", type=Path)
     fetch.add_argument("--refresh", action="store_true")
@@ -99,11 +102,30 @@ def parser() -> argparse.ArgumentParser:
     )
     advanced.add_argument("--protocol", type=Path, default=Path("config/advanced_research.toml"))
     advanced.add_argument("--raw", type=Path)
+    feature_study = commands.add_parser(
+        "feature-study", help="Features causales, selección temporal anidada y ablaciones"
+    )
+    feature_study.add_argument("--protocol", type=Path, default=Path("config/feature_study.toml"))
+    label_study = commands.add_parser(
+        "label-study", help="Triple Barrier, Meta-Labeling y costos en experimentos aislados"
+    )
+    label_study.add_argument("--protocol", type=Path, default=Path("config/label_study.toml"))
     advanced.add_argument(
         "--cache-from",
         type=Path,
         help="Recuperar ajustes de una corrida técnica fallida del mismo protocolo",
     )
+    frontier = commands.add_parser(
+        "frontier-study", help="Modelos multi-activo con embargo y test futuro sellado"
+    )
+    frontier.add_argument("--protocol", type=Path, default=Path("config/frontier_research.toml"))
+    frontier.add_argument("--cache-from", type=Path)
+    frontier_future = commands.add_parser(
+        "frontier-future-evaluate", help="Abrir una vez el test futuro de modelos congelados"
+    )
+    frontier_future.add_argument("--study", type=Path, required=True)
+    frontier_future.add_argument("--btc-raw", type=Path, required=True)
+    frontier_future.add_argument("--eth-raw", type=Path, required=True)
     analysis = commands.add_parser(
         "smc-analyze",
         help="Analizar estructura y probabilidad con el candidato SMC de investigación",
@@ -129,6 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         settings = load_settings(args.config)
+        if args.command.startswith("market-"):
+            from trading_ml.multimarket.cli import dispatch
+
+            result = dispatch(settings, args)
+            print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
+            return 0
         dataset = getattr(args, "data", None) or settings.root / "data" / "prepared.csv"
         if args.command == "download":
             result = {"raw_data": str(download(settings, args.output, args.refresh))}
@@ -244,6 +272,63 @@ def main(argv: list[str] | None = None) -> int:
                     "live_trading",
                 ]
             }
+        elif args.command == "label-study":
+            from trading_ml.label_research.study import run_label_study
+
+            report = run_label_study(settings, args.protocol)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "historical_qualified_candidates",
+                    "conclusion",
+                    "existing_models_preserved",
+                    "prospective_unchanged",
+                    "promoted",
+                ]
+            }
+        elif args.command == "feature-study":
+            from trading_ml.feature_research.study import run_feature_study
+
+            report = run_feature_study(settings, args.protocol)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "historical_qualified_recipes",
+                    "conclusion",
+                    "existing_models_preserved",
+                    "prospective_unchanged",
+                    "prospective_evaluated",
+                    "promoted",
+                ]
+            }
+        elif args.command == "frontier-study":
+            from trading_ml.frontier_research.study import run_frontier_study
+
+            report = run_frontier_study(settings, args.protocol, args.cache_from)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "records",
+                    "selection",
+                    "conclusion",
+                    "prospective_evaluated",
+                    "promoted",
+                    "live_trading",
+                ]
+            }
+        elif args.command == "frontier-future-evaluate":
+            from trading_ml.frontier_research.prospective import evaluate_frontier_future
+
+            result = evaluate_frontier_future(settings, args.study, args.btc_raw, args.eth_raw)
         elif args.command == "smc-analyze":
             version = args.version
             if version is None:

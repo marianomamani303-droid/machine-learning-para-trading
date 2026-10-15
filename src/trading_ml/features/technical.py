@@ -40,7 +40,9 @@ def feature_columns(config: Features) -> list[str]:
     return columns
 
 
-def build_features(frame: pd.DataFrame, config: Features) -> pd.DataFrame:
+def build_features(
+    frame: pd.DataFrame, config: Features, *, include_volume: bool = True
+) -> pd.DataFrame:
     """Indicadores disponibles al cierre de cada vela; sin ajustes globales."""
     result = frame.copy()
     close = frame.close
@@ -48,9 +50,10 @@ def build_features(frame: pd.DataFrame, config: Features) -> pd.DataFrame:
         result[f"return_{lag}"] = close.pct_change(lag, fill_method=None)
     result["range_ratio"] = (frame.high - frame.low) / close
     result["body_ratio"] = (close - frame.open) / frame.open
-    result["volume_ratio"] = frame.volume / frame.volume.rolling(20, min_periods=20).mean().replace(
-        0, np.nan
-    )
+    if include_volume:
+        result["volume_ratio"] = frame.volume / frame.volume.rolling(
+            20, min_periods=20
+        ).mean().replace(0, np.nan)
     change = close.diff()
     gain = (
         change.clip(lower=0)
@@ -99,7 +102,8 @@ def build_features(frame: pd.DataFrame, config: Features) -> pd.DataFrame:
         result["close_location"] = (
             (close - frame.low) / (frame.high - frame.low).replace(0, np.nan)
         ).fillna(0.5)
-        result["volume_change_1"] = np.log1p(frame.volume).diff()
+        if include_volume:
+            result["volume_change_1"] = np.log1p(frame.volume).diff()
     if config.smc:
         patterns = detect_smc(frame, SMCConfig.from_features(config))
         result = pd.concat([result, patterns], axis=1)
