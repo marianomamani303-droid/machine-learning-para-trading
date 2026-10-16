@@ -11,6 +11,8 @@
 
 El paper combina posiciones continuas acotadas, escalado por volatilidad ex ante y entrenamiento directo por retorno o Sharpe. Compara modelos lineales, MLP, WaveNet y LSTM con clasificación/regresión y reglas tradicionales. Utiliza 88 futuros continuos ajustados de 1990–2015, recalibración expansiva cada cinco años, validación temporal final del 10%, Adam y búsqueda aleatoria de 50 configuraciones. La LSTM usa trayectorias de 63 pasos. Incluye retornos normalizados de 1/21/63/126/252 días y tres MACD normalizados. El escalado individual usa volatilidad exponencial de span 60 y objetivo anual 15%. Los resultados distinguen señal bruta, reescalado de cartera y costos; la ventaja de LSTM sin regularización es sensible al turnover. No constituyen evidencia de rentabilidad en otro mercado.
 
+Referencias numéricas de sus tablas 2/3/8: Sharpe LSTM sin costos 2,804 frente a 1,192 de TSMOM; con escalado adicional, 2,907 frente a 1,392; con costos de 10 bps, LSTM sin regularización −5,313 y con regularización 0,912. Son cifras reportadas por los autores en futuros, no resultados obtenidos aquí.
+
 ## Auditoría del proyecto existente
 
 - Hay descarga Binance con checksum, validación OHLCV estricta, contratos, walk-forward, baselines, bootstrap por bloques y protección prospectiva aprovechables.

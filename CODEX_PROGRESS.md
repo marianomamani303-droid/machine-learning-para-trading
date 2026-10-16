@@ -23,6 +23,7 @@ Transformar este repositorio en un sistema reproducible de investigación cuanti
 8. 120 ajustes reales terminados (long/cash + sensibilidad long/short), 1022 archivos verificados y 690 carteras reconstruidas. Ninguna orden real, promoción ni reserva previa evaluada.
 9. Gráficos PNG/SVG generados e inspeccionados; guía de instalación/reanudación/fórmulas y análisis de resultados positivos/negativos terminados. README y arquitectura enlazan el nuevo núcleo.
 10. Recuperación real de ambas corridas completadas comprobada: ningún archivo cambió, ningún ajuste adicional. Lockfile verificado offline con pip, entrypoint `trading-dmn` operativo. Recibo en `artifacts/verification/dmn_final_verification.json`.
+11. Implementación/documentación guardadas en commit **`a496295`**. Se incorporó sólo el cambio DMN de README mediante staging parcial: los cambios iniciales de README/CLI y los archivos de `structure_regime`/auditoría permanecen intactos y sin incluirse en ese commit.
 
 ## Etapas pendientes
 1. Investigación posterior: auditar disponibilidad/licencia y rolls de datos diarios de futuros diversificados o preparar un contrato Forex con bid/ask y calendario real. No sustituirlo por series continuas sin procedencia.
@@ -58,6 +59,7 @@ Transformar este repositorio en un sistema reproducible de investigación cuanti
 - El texto adjunto debe leerse como UTF-8 (PowerShell mostró mojibake con la codificación predeterminada).
 - Resueltos en pruebas: pandas usa timestamps en microsegundos en este entorno (comparar Timedelta, no enteros ns); dropout exigió forzar entradas contiguas para reproducibilidad independiente del layout de memoria.
 - LSTM de ventanas solapadas con dropout de entrada/salida, no recurrente variacional; mercado cripto long/cash y 365 días/año: adaptación explícita, no réplica exacta de los 88 futuros originales.
+- Las evidencias incluyen rutas absolutas a archivos históricos protegidos. Conservar ubicación al verificar/reanudar estas corridas, o registrar explícitamente una migración; una corrida nueva puede reproducirse en otro checkout con sus propias rutas. Resguardar `artifacts` aparte: está excluido de Git.
 
 ## Comandos
 ```powershell
