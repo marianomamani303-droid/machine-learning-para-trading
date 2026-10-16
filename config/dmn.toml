@@ -1,0 +1,82 @@
+# Frozen research hypotheses. Historical results are development, never a blind test.
+[data]
+symbols = ["BTCUSDT", "ETHUSDT"]
+start = "2020-01-01"
+end = "2026-10-01"
+periods_per_year = 365
+
+[data.sources]
+BTCUSDT = "artifacts/data/raw.csv"
+ETHUSDT = "artifacts/research_data/ETHUSDT_20200101_20261001.csv"
+
+[research]
+boundaries = ["2022-07-01", "2023-01-01", "2024-01-01", "2025-01-01", "2026-01-01", "2026-10-01"]
+seeds = [42, 1729]
+maximum_fits = 60
+
+[training]
+sequence_length = 63
+validation_days = 180
+embargo_days = 1
+minimum_train_dates = 180
+epochs = 30
+patience = 7
+batch_dates = 128
+hidden_size = 20
+learning_rate = 0.001
+dropout = 0.2
+gradient_clip = 1.0
+threads = 2
+
+[risk]
+position_mode = "long_only"
+target_volatility = 0.15
+maximum_gross = 1.0
+daily_volatility_floor = 0.0001
+
+[costs]
+commission_bps = 10.0
+slippage_bps = 5.0
+half_spread_bps = 1.0
+short_borrow_annual_bps = 300.0
+cash_borrow_annual_bps = 500.0
+
+[bootstrap]
+samples = 1000
+block_lengths = [7, 30]
+
+[[recipes]]
+id = "linear_sharpe_net"
+architecture = "linear"
+objective = "sharpe"
+net_training = true
+
+[[recipes]]
+id = "mlp_sharpe_net"
+architecture = "mlp"
+objective = "sharpe"
+net_training = true
+
+[[recipes]]
+id = "lstm_sharpe_gross"
+architecture = "lstm"
+objective = "sharpe"
+net_training = false
+
+[[recipes]]
+id = "lstm_sharpe_net"
+architecture = "lstm"
+objective = "sharpe"
+net_training = true
+
+[[recipes]]
+id = "lstm_mse"
+architecture = "lstm"
+objective = "mse"
+net_training = false
+
+[[recipes]]
+id = "xgboost_binary"
+architecture = "xgboost"
+objective = "binary"
+net_training = false

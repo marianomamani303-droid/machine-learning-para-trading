@@ -1,4 +1,6 @@
-# Motor de Machine Learning para trading
+# Investigación cuantitativa con Deep Momentum Networks
+
+El núcleo de investigación DMN incorpora PyTorch, LSTM con posiciones continuas y pérdidas de Sharpe/retorno, controles lineal/MLP/XGBoost, features causales, riesgo por volatilidad, cartera con costos y walk-forward purgado. **120 ajustes sobre BTC/ETH no demostraron una ventaja robusta**; no se promovieron modelos. Empezar por [DMN_GUIDE.md](DMN_GUIDE.md), consultar metodología en [DMN_RESEARCH.md](DMN_RESEARCH.md), resultados en [DMN_RESULTS.md](DMN_RESULTS.md) y continuidad de sesiones en [CODEX_PROGRESS.md](CODEX_PROGRESS.md). Los estudios históricos siguientes conservan su trazabilidad.
 
 Triple Barrier y Meta-Labeling se implementaron como experimentos independientes con costos y validación temporal: **486 ajustes, sin mejora consistente que justifique reemplazar el original**. Objetivos, ejecución, calibración, resultados positivos/negativos y reproducción en [TRIPLE_BARRIER_RESEARCH.md](TRIPLE_BARRIER_RESEARCH.md). Comando: `python -m trading_ml label-study --protocol config/label_study.toml`.
 

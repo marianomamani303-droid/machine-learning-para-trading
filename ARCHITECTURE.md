@@ -2,6 +2,23 @@
 
 Paquete `src/trading_ml`, instalado mediante `pyproject.toml`. La CLI y scripts orquestan módulos que también pueden invocarse desde Python. No hay servidor, interfaz gráfica ni ejecución de órdenes.
 
+La nueva investigación principal vive en `trading_ml.dmn`, con entrada `python -m trading_ml.dmn` / `trading-dmn`. Se reutilizan el proveedor Binance, validación OHLCV, errores, procedencia, hashes, bloques bootstrap y protección de reservas. La política continua y el simulador de cartera tienen contratos propios: no se fuerzan dentro del clasificador probabilístico ni del simulador histórico de trades discretos. Instalación y fórmulas en [DMN_GUIDE.md](DMN_GUIDE.md), decisiones y desviaciones en [DMN_RESEARCH.md](DMN_RESEARCH.md), evidencia en [DMN_RESULTS.md](DMN_RESULTS.md).
+
+```mermaid
+flowchart LR
+    R[OHLCV con checksum y cobertura] --> F[8 features causales y secuencias]
+    F --> S[Train y validación interior purgados]
+    S --> T[Lineal / MLP / LSTM / control XGBoost]
+    T --> P[Checkpoint seleccionado sólo en validación]
+    P --> O[Posiciones en siguiente fold exterior]
+    O --> W[Riesgo ex ante y límite de exposición]
+    W --> B[Holdings con deriva, costos y liquidación]
+    B --> E[Curvas, folds, activos, semillas y bootstrap]
+    E --> H[Artefactos inmutables y verificación contable]
+```
+
+Cada estudio DMN guarda plan anterior a los ajustes, código en ZIP, snapshots de datos, entorno, scalers de train, pesos seguros `state_dict`, historial de convergencia y registros de intentos. La reanudación verifica código/entorno/protocolo, reutiliza ajustes completados y conserva intentos incompletos. El verificador reconstruye cada cartera bruta/neta/con costos dobles desde pesos y retornos guardados. Los días excluidos por purga se conservan como cash en la curva de calendario. Estos resultados son desarrollo histórico; las reservas originales no se abrieron y no existe promoción automática de DMN.
+
 ## Módulos y responsabilidades
 
 | Módulo | Responsabilidad |

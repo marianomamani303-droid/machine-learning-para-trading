@@ -5,16 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trading-ml-engine"
 version = "0.1.0"
-description = "Motor independiente de investigación de trading con XGBoost"
+description = "Investigación cuantitativa reproducible con Deep Momentum Networks y baselines"
 requires-python = ">=3.11"
 dependencies = ["numpy>=2.0,<3", "pandas>=2.2,<4", "scikit-learn>=1.6,<2", "xgboost>=3.0,<4", "requests>=2.32,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 research = ["lightgbm>=4.7,<5", "catboost>=1.2.10,<2", "joblib>=1.6,<2"]
+dmn = ["torch>=2.9,<3", "matplotlib>=3.10,<4"]
 
 [project.scripts]
 trading-ml = "trading_ml.cli:main"
+trading-dmn = "trading_ml.dmn.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
