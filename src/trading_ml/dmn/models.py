@@ -140,7 +140,9 @@ def fit_network(
     scaler = fit_scaler(panel.x[train])
     x = apply_scaler(panel.x[train], scaler)
     validation_x = apply_scaler(panel.x[validation], scaler)
-    model = MomentumNetwork(recipe["architecture"], len(FEATURES), t["hidden_size"], t["dropout"])
+    model = MomentumNetwork(
+        recipe["architecture"], len(panel.feature_names), t["hidden_size"], t["dropout"]
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=t["learning_rate"])
     y = torch.from_numpy(panel.returns[train].astype(np.float32))
     vol = torch.from_numpy(panel.volatility[train].astype(np.float32))
@@ -225,7 +227,7 @@ def fit_network(
         "seed": seed,
         "hidden_size": t["hidden_size"],
         "dropout": t["dropout"],
-        "features": list(FEATURES),
+        "features": list(panel.feature_names),
         "scaler": scaler,
         "selected_epoch": best_epoch,
         "epochs_executed": len(history),
@@ -245,14 +247,16 @@ def fit_network(
     return model, scaler, metadata
 
 
-def load_network(directory: Path) -> tuple[MomentumNetwork, dict]:
+def load_network(
+    directory: Path, *, expected_features: tuple[str, ...] = FEATURES
+) -> tuple[MomentumNetwork, dict]:
     meta = read_json(directory / "metadata.json")
     if sha256(directory / "weights.pt") != meta["weights_sha256"] or meta["features"] != list(
-        FEATURES
+        expected_features
     ):
         raise DataError("Checkpoint/contrato DMN alterado")
     model = MomentumNetwork(
-        meta["architecture"], len(FEATURES), meta["hidden_size"], meta["dropout"]
+        meta["architecture"], len(expected_features), meta["hidden_size"], meta["dropout"]
     )
     model.load_state_dict(
         torch.load(directory / "weights.pt", map_location="cpu", weights_only=True)
@@ -288,17 +292,17 @@ def fit_xgboost(
         early_stopping_rounds=15,
     )
     model.fit(
-        x[train].reshape(-1, len(FEATURES)),
+        x[train].reshape(-1, len(panel.feature_names)),
         (panel.returns[train] > 0).reshape(-1).astype(int),
         eval_set=[
             (
-                x[validation].reshape(-1, len(FEATURES)),
+                x[validation].reshape(-1, len(panel.feature_names)),
                 (panel.returns[validation] > 0).reshape(-1).astype(int),
             )
         ],
         verbose=False,
     )
-    probability = model.predict_proba(x[test].reshape(-1, len(FEATURES)))[:, 1].reshape(
+    probability = model.predict_proba(x[test].reshape(-1, len(panel.feature_names)))[:, 1].reshape(
         len(test), -1
     )
     signal = np.sign(probability - 0.5)
@@ -309,7 +313,7 @@ def fit_xgboost(
     meta = {
         "seed": seed,
         "architecture": "xgboost",
-        "features": list(FEATURES),
+        "features": list(panel.feature_names),
         "selected_trees": int(model.best_iteration + 1),
         "validation_selection": "logloss; supervised control differs from Sharpe checkpoint selection",
         "train_last_target": panel.target_times[train[-1]].isoformat(),

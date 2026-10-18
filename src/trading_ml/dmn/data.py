@@ -62,6 +62,7 @@ class Panel:
     returns: np.ndarray
     volatility: np.ndarray
     baselines: dict[str, np.ndarray]
+    feature_names: tuple[str, ...] = FEATURES
 
     def eligible(self, start: pd.Timestamp | None, end: pd.Timestamp) -> np.ndarray:
         mask = (self.target_times < end) & np.isfinite(self.returns).all(axis=1)

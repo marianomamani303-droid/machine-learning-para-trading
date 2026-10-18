@@ -309,7 +309,9 @@ def test_protocol_and_supported_markets():
     assert instrument("USD/JPY").pip == 0.01
     assert instrument("BTC/USDT").market == "crypto"
     with pytest.raises(DataError):
-        instrument("EURGBP")
+        instrument("USDNOK")
+    assert instrument("EURGBP").market == "forex"
+    assert instrument("GBPJPY").pip == 0.01
 
 
 def test_snapshot_is_append_only(tmp_path):

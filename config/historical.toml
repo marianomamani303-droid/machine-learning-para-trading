@@ -1,0 +1,19 @@
+# Acquisition only. Does not launch studies, fit models or change old protocols.
+[data]
+end = "2026-10-01"
+development_end = "2025-07-01"
+workers = 4
+
+[crypto]
+start = "2017-01-01"
+spot = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LINKUSDT", "LTCUSDT", "DOTUSDT", "AVAXUSDT", "BCHUSDT"]
+perpetual = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
+dated_futures = ["BTCUSD", "ETHUSD"]
+
+[forex]
+start = "2012-01-01"
+symbols = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY", "EURGBP"]
+
+[indices]
+start = "1990-01-01"
+symbols = ["^GSPC", "^IXIC", "^DJI", "^RUT", "^VIX", "^GDAXI", "^FTSE", "^N225"]

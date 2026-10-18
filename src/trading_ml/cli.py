@@ -106,6 +106,12 @@ def parser() -> argparse.ArgumentParser:
         "feature-study", help="Features causales, selección temporal anidada y ablaciones"
     )
     feature_study.add_argument("--protocol", type=Path, default=Path("config/feature_study.toml"))
+    structure_regime = commands.add_parser(
+        "structure-regime-study", help="Estructura causal, regímenes y especialistas aislados"
+    )
+    structure_regime.add_argument(
+        "--protocol", type=Path, default=Path("config/structure_regime.toml")
+    )
     label_study = commands.add_parser(
         "label-study", help="Triple Barrier, Meta-Labeling y costos en experimentos aislados"
     )
@@ -139,6 +145,13 @@ def parser() -> argparse.ArgumentParser:
         help="Evaluar la reserva futura completa con los tres sistemas congelados",
     )
     future.add_argument("--raw", type=Path, required=True)
+    dash = commands.add_parser(
+        "dashboard",
+        help="Iniciar dashboard web local minimalista para inferencia en tiempo real",
+    )
+    dash.add_argument("--host", default="127.0.0.1")
+    dash.add_argument("--port", type=int, default=8501)
+    dash.add_argument("--headless", action="store_true")
     return result
 
 
@@ -151,6 +164,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         settings = load_settings(args.config)
+        if args.command == "dashboard":
+            import os
+            import subprocess
+
+            app_path = Path(__file__).resolve().parent / "dashboard" / "app.py"
+            env = os.environ.copy()
+            env["TRADING_ML_ROOT"] = str(settings.root)
+            cmd = [
+                sys.executable,
+                "-m",
+                "streamlit",
+                "run",
+                str(app_path),
+                "--server.address",
+                str(args.host),
+                "--server.port",
+                str(args.port),
+            ]
+            if args.headless:
+                cmd.extend(["--server.headless", "true"])
+            return subprocess.call(cmd, env=env)
         if args.command.startswith("market-"):
             from trading_ml.multimarket.cli import dispatch
 
@@ -286,6 +320,24 @@ def main(argv: list[str] | None = None) -> int:
                     "conclusion",
                     "existing_models_preserved",
                     "prospective_unchanged",
+                    "promoted",
+                ]
+            }
+        elif args.command == "structure-regime-study":
+            from trading_ml.structure_regime.study import run_structure_regime_study
+
+            report = run_structure_regime_study(settings, args.protocol)
+            result = {
+                key: report[key]
+                for key in [
+                    "run_id",
+                    "directory",
+                    "actual_fits",
+                    "qualified",
+                    "combination",
+                    "existing_models_preserved",
+                    "previous_artifacts_preserved",
+                    "prospective_evaluated",
                     "promoted",
                 ]
             }

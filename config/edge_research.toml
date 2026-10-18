@@ -1,0 +1,31 @@
+schema = 1
+start = "2022-01-01"
+end_exclusive = "2025-07-01"
+symbols = ["BTCUSDT", "ETHUSDT"]
+boundaries = ["2024-01-01", "2024-07-01", "2025-01-01", "2025-07-01"]
+tasks = ["1h:1", "1h:4", "4h:1", "1d:1"]
+recipes = ["logistic_price", "logistic_full", "logistic_noise", "xgb_full"]
+seed = 42
+maximum_fits = 120
+validation_days = 90
+embargo_hours = 48
+logistic_c = 0.1
+xgb_estimators = 100
+commission_bps = 10.0
+slippage_bps = 5.0
+half_spread_bps = 2.0
+target_annual_volatility = 0.20
+threshold = 0.55
+payoff_cost_margin = 1.5
+bootstrap_samples = 2000
+bootstrap_days = [7, 30]
+minimum_trades = 30
+minimum_positive_folds = 2
+alpha = 0.05
+# 96 estimators + 24 temporal sigmoid calibrators, no grid / early stopping.
+# Every task uses next-open/open labels; no data >= end_exclusive enter research.
+# Primary family: full vs price/noise/constant, XGB vs constant: 32 contrasts.
+# Daily paired loss and net strategy minus matched buy/hold; 7/30-day blocks.
+# A second family of 16 economic tests: 2 assets x 4 tasks x 2 full models.
+# Economic primary is payoff_risk vs matched buy/hold, with doubled cost >0.
+# These are exploratory reused histories; no retrospective result grants promotion.

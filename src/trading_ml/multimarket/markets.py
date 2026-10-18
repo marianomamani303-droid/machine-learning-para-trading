@@ -31,6 +31,11 @@ INSTRUMENTS = {
         ("GBPUSD", 0.0001, 100000),
         ("USDCHF", 0.0001, 100000),
         ("AUDUSD", 0.0001, 100000),
+        ("USDCAD", 0.0001, 100000),
+        ("NZDUSD", 0.0001, 100000),
+        ("EURJPY", 0.01, 1000),
+        ("GBPJPY", 0.01, 1000),
+        ("EURGBP", 0.0001, 100000),
     ]
 }
 INSTRUMENTS.update(

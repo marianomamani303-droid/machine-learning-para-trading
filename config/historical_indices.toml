@@ -1,0 +1,10 @@
+# Complete vendor history; unavailable/zero/invalid OHLC is excluded, never filled.
+[data]
+end = "2026-10-01"
+development_end = "2025-07-01"
+workers = 4
+
+[indices]
+start = "1900-01-01"
+ohlc_policy = "observed_nonzero_daily_range"
+symbols = ["^GSPC", "^IXIC", "^DJI", "^RUT", "^VIX", "^GDAXI", "^FTSE", "^N225"]

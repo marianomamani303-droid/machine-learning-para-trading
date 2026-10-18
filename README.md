@@ -1,6 +1,10 @@
 # Investigación cuantitativa con Deep Momentum Networks
 
+Investigación adicional de ventaja predictiva y económica en **BTC/ETH, 1h, 4h y diario**: [resultados completos](EDGE_RESEARCH_RESULTS.md) y [protocolo](EDGE_RESEARCH.md). Se completaron 120 ajustes con walk-forward purgado, controles de precio/ruido y estrés de costos/demora. Cinco contrastes superan a p=0,5, ninguno demuestra aporte incremental de las nuevas señales ni ventaja económica robusta. Los 75.136 artefactos anteriores permanecen intactos; no se promovieron modelos. El dashboard incorpora una vista de estas decisiones de investigación.
+
 El núcleo de investigación DMN incorpora PyTorch, LSTM con posiciones continuas y pérdidas de Sharpe/retorno, controles lineal/MLP/XGBoost, features causales, riesgo por volatilidad, cartera con costos y walk-forward purgado. **120 ajustes sobre BTC/ETH no demostraron una ventaja robusta**; no se promovieron modelos. Empezar por [DMN_GUIDE.md](DMN_GUIDE.md), consultar metodología en [DMN_RESEARCH.md](DMN_RESEARCH.md), resultados en [DMN_RESULTS.md](DMN_RESULTS.md) y continuidad de sesiones en [CODEX_PROGRESS.md](CODEX_PROGRESS.md). Los estudios históricos siguientes conservan su trazabilidad.
+
+Investigación aislada de estructura y regímenes: reutiliza los detectores SMC existentes, añade confirmaciones de retesteos y compara global, global con régimen y especialistas. Plan previo, auditoría, criterios y comparación en [STRUCTURE_REGIME_RESEARCH.md](STRUCTURE_REGIME_RESEARCH.md). Ejecutar `python -m trading_ml structure-regime-study --protocol config/structure_regime.toml`; no modifica modelos anteriores ni abre reservas prospectivas.
 
 Triple Barrier y Meta-Labeling se implementaron como experimentos independientes con costos y validación temporal: **486 ajustes, sin mejora consistente que justifique reemplazar el original**. Objetivos, ejecución, calibración, resultados positivos/negativos y reproducción en [TRIPLE_BARRIER_RESEARCH.md](TRIPLE_BARRIER_RESEARCH.md). Comando: `python -m trading_ml label-study --protocol config/label_study.toml`.
 

@@ -1,0 +1,35 @@
+[research]
+reference_version = "v20261012T130540_d2bb6ac0"
+boundaries = ["2022-01-01", "2022-07-01", "2023-01-01", "2023-07-01", "2024-01-01", "2025-01-01", "2026-10-01"]
+embargo_days = 6
+minimum_train_rows = 240
+maximum_fits = 500
+seeds = [42, 1729]
+minimum_expert_rows = 80
+minimum_expert_class = 20
+shrinkage_rows = 200
+
+[structure]
+retest_bars = 20
+tolerance_atr = 0.25
+impulse_atr = 0.5
+impulse_close_location = 0.75
+
+[bootstrap]
+samples = 2000
+block_lengths = [7, 30]
+confidence = 0.95
+seed = 42
+
+[costs]
+commission_bps = 10.0
+slippage_bps = 5.0
+spread_bps = 2.0
+threshold = 0.55
+initial_capital = 10000.0
+
+[acceptance]
+minimum_log_loss_gain = 0.003
+minimum_auc_gain = 0.005
+required_fold_fraction = 0.6666666666666666
+minimum_trades = 30
