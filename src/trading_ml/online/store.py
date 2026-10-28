@@ -120,7 +120,13 @@ def load_models(connection) -> dict[str, dict]:
         except (ValueError, TypeError, KeyError) as exc:
             raise DataError(f"Estado inválido del modelo {row['model_id']}: {exc}") from exc
         models[row["model_id"]] = payload
-    if set(models) != {"baseline", "logistic_slow", "logistic_fast"}:
+    contract = get_meta(connection, "protocol")
+    expected_cohort = (
+        set(contract["cohort_models"])
+        if isinstance(contract, dict) and "cohort_models" in contract
+        else {"baseline", "logistic_slow", "logistic_fast"}
+    )
+    if set(models) != expected_cohort:
         raise DataError("Cohorte online incompleta o desconocida")
     return models
 

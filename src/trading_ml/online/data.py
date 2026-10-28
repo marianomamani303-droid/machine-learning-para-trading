@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import requests
 
 from trading_ml.config.settings import INTERVALS
 from trading_ml.errors import DataError
-from trading_ml.online.config import utc
+from trading_ml.online.config import FEATURE_SETS, utc
 
 ENDPOINTS = [
     "https://api.binance.com/api/v3/klines",
@@ -103,8 +105,52 @@ def fetch_candles(config: dict, now: pd.Timestamp, last_open: str | None) -> pd.
     return validate_candles(frame, market["interval"], now)
 
 
-def features(window: pd.DataFrame) -> list[float]:
+def _financial_features(window: pd.DataFrame) -> list[float]:
+    """Compute causal microstructure liquidity & Parkinson volatility features on closed bars."""
+    if len(window) < 24:
+        raise DataError("v2_financial11 requiere al menos 24 velas cerradas en la ventana")
+    high = window.high.to_numpy(dtype=float)
+    low = window.low.to_numpy(dtype=float)
+    close = window.close.to_numpy(dtype=float)
+    volume = window.volume.to_numpy(dtype=float)
+
+    # 1. Corwin-Schultz (2012) high-low spread estimator (20-pair causal average)
+    hl_tail = min(len(window), 21)
+    h_sub = high[-hl_tail:]
+    l_sub = low[-hl_tail:]
+    log_hl_sq = np.log(h_sub / l_sub) ** 2
+    beta = log_hl_sq[:-1] + log_hl_sq[1:]
+    h_max = np.maximum(h_sub[:-1], h_sub[1:])
+    l_min = np.minimum(l_sub[:-1], l_sub[1:])
+    gamma = np.log(h_max / l_min) ** 2
+    denom = 3.0 - 2.0 * math.sqrt(2.0)
+    alpha = (np.sqrt(2.0 * beta) - np.sqrt(beta)) / denom - np.sqrt(gamma / denom)
+    exp_a = np.exp(np.clip(alpha, -10.0, 10.0))
+    spreads = np.maximum(0.0, 2.0 * (exp_a - 1.0) / (1.0 + exp_a))
+    cs_spread_scaled = float(np.mean(spreads) * 50.0)
+
+    # 2. Range-to-dollar-volume liquidity impact z-score (up to 64 bars causal window)
+    rel_range = (high - low) / np.maximum(close, 1e-8)
+    dollar_vol = close * np.maximum(volume, 0.0)
+    log_impact = np.log((rel_range + 1e-8) / (dollar_vol + 1.0))
+    imp_std = float(np.std(log_impact))
+    imp_mean = float(np.mean(log_impact))
+    impact_z = float((log_impact[-1] - imp_mean) / imp_std) if imp_std > 1e-8 else 0.0
+
+    # 3. Parkinson short-to-long range volatility ratio (6-bar vs 24-bar)
+    park_Factor = 1.0 / (4.0 * math.log(2.0))
+    park_bars = park_Factor * (np.log(high / low) ** 2)
+    short_vol = math.sqrt(max(float(np.mean(park_bars[-6:])), 1e-12))
+    long_vol = math.sqrt(max(float(np.mean(park_bars[-24:])), 1e-12))
+    park_ratio = (short_vol / long_vol - 1.0) * 5.0 if long_vol > 1e-10 else 0.0
+
+    return [cs_spread_scaled, impact_z, park_ratio]
+
+
+def features(window: pd.DataFrame, feature_set: str = "v1_base8") -> list[float]:
     """Fixed, bounded causal transforms; no scaler fitted on future rows."""
+    if feature_set not in FEATURE_SETS:
+        raise DataError(f"feature_set desconocido: {feature_set}")
     close = window.close.to_numpy(dtype=float)
     last = window.iloc[-1]
     returns = np.diff(np.log(close))
@@ -119,4 +165,20 @@ def features(window: pd.DataFrame) -> list[float]:
         (last.close / last.open - 1) * 50,
         (last.volume / volume_mean - 1) if volume_mean > 0 else 0,
     ]
+    if feature_set == "v2_financial11":
+        result.extend(_financial_features(window))
     return np.clip(result, -10, 10).astype(float).tolist()
+
+
+def realized_target_metrics(
+    reference_close: float,
+    target_bars: pd.DataFrame,
+) -> tuple[float, float]:
+    """Compute causal confirmed log-return and blended Parkinson/squared-return realized variance."""
+    target_close = float(target_bars["close"].iloc[-1])
+    log_ret = math.log(target_close / float(reference_close))
+    high_max = float(target_bars["high"].max())
+    low_min = float(target_bars["low"].min())
+    park_var = (math.log(high_max / low_min) ** 2) / (4.0 * math.log(2.0)) if low_min > 0 else 0.0
+    blended_rv = max(1e-8, 0.5 * (log_ret * log_ret) + 0.5 * park_var)
+    return float(log_ret), float(blended_rv)

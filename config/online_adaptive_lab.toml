@@ -1,0 +1,25 @@
+[market]
+symbol = "BTCUSDT"
+interval = "1h"
+horizon = 1
+
+[online]
+state_path = "artifacts/online/state_adaptive_lab.sqlite3"
+poll_seconds = 30
+warmup_bars = 64
+max_prediction_delay_seconds = 120
+max_fetch_pages = 20
+seed = 42
+start_at = "2026-10-18T17:00:00Z"
+cohort = "adaptive_lab"
+feature_set = "v2_financial11"
+static_warmup_updates = 120
+
+[evaluation]
+eval_window = 50
+min_samples = 100
+patience = 3
+alpha = 0.05
+min_effect = 0.001
+method = "empirical_bernstein"
+

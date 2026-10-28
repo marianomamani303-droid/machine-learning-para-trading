@@ -11,10 +11,27 @@ import pandas as pd
 from trading_ml.config.settings import INTERVALS
 from trading_ml.errors import DataError
 from trading_ml.online import store
-from trading_ml.online.config import FEATURE_NAMES, load_config, protocol, utc
-from trading_ml.online.data import COLUMNS, features, fetch_candles, validate_candles
-from trading_ml.online.evaluation import evaluate_models
-from trading_ml.online.models import learn, new_models, predict
+from trading_ml.online.adaptive import COHORT_DEFINITIONS, MODEL_SPECS
+from trading_ml.online.config import (
+    FEATURE_NAMES,
+    cohort_for_config,
+    feature_names_for_config,
+    load_config,
+    protocol,
+    utc,
+)
+from trading_ml.online.data import (
+    COLUMNS,
+    features,
+    fetch_candles,
+    realized_target_metrics,
+    validate_candles,
+)
+from trading_ml.online.evaluation import (
+    evaluate_models,
+    evaluate_target_specific_records,
+)
+from trading_ml.online.models import learn, new_models, predict, predict_structured
 
 
 def _state(config: dict, state_path: Path | None) -> Path:
@@ -43,14 +60,28 @@ def init_state(config_path: Path, state_path: Path | None = None) -> dict:
                 raise DataError(
                     "Estado parcial/incompatible, no se inicializará sobre modelos existentes"
                 )
+            proto = protocol(config)
+            fnames = feature_names_for_config(config)
+            cohort = cohort_for_config(config)
+            options = {
+                "static_warmup_updates": config["online"].get("static_warmup_updates", 120),
+            }
             store.set_meta(connection, "schema_version", store.SCHEMA_VERSION)
-            store.set_meta(connection, "protocol", protocol(config))
-            store.set_meta(connection, "protocol_hash", store.digest(protocol(config)))
+            store.set_meta(connection, "protocol", proto)
+            store.set_meta(connection, "protocol_hash", store.digest(proto))
             store.set_meta(connection, "mode", None)
             store.set_meta(connection, "cursor", None)
-            store.save_models(connection, new_models(len(FEATURE_NAMES), config["online"]["seed"]))
+            store.save_models(
+                connection,
+                new_models(
+                    len(fnames),
+                    config["online"]["seed"],
+                    cohort=cohort,
+                    options=options,
+                ),
+            )
             store.event(
-                connection, pd.Timestamp.now(tz="UTC").isoformat(), "initialized", protocol(config)
+                connection, pd.Timestamp.now(tz="UTC").isoformat(), "initialized", proto
             )
         _contract(connection, config)
         store.load_models(connection)
@@ -109,13 +140,27 @@ def _resolve(
         if not required.isin(by_open.index).all():
             row["status"] = "invalid_gap"
         else:
+            target_bars = by_open.loc[required]
             target_close = float(by_open.loc[target - delta, "close"])
+            realized_ret, realized_var = realized_target_metrics(
+                float(row["reference_close"]), target_bars
+            )
             row["target_close"] = target_close
             row["label"] = int(target_close > row["reference_close"])
             row["status"] = "evaluated"
             row["confirmed_at"] = at.isoformat()
             row["learned"] = int(models[row["model_id"]]["status"] == "active")
-            learn(models[row["model_id"]], json.loads(row["features"]), row["label"])
+            model_obj = models[row["model_id"]]
+            if model_obj["kind"] in ("beta_frequency", "logistic"):
+                learn(model_obj, json.loads(row["features"]), row["label"])
+            else:
+                learn(
+                    model_obj,
+                    json.loads(row["features"]),
+                    row["label"],
+                    realized_return=realized_ret,
+                    realized_variance=realized_var,
+                )
             confirmed += 1
         row["digest"] = store.row_digest(row)
         connection.execute(
@@ -230,6 +275,8 @@ def run_once(
         decisions = []
         start_at = utc(config["online"]["start_at"])
         warmup = config["online"]["warmup_bars"]
+        fset = config["online"].get("feature_set", "v1_base8")
+        cohort = cohort_for_config(config)
         if replay:
             references = (candidates.timestamp + delta).tolist()
         else:
@@ -254,7 +301,7 @@ def run_once(
             window = eligible.loc[eligible.timestamp < reference].tail(warmup)
             if len(window) != warmup or not (window.timestamp.diff().dropna() == delta).all():
                 continue
-            values = features(window)
+            values = features(window, feature_set=fset)
             for name, model in models.items():
                 if (
                     model["status"] != "active"
@@ -264,7 +311,12 @@ def run_once(
                     ).fetchone()
                 ):
                     continue
-                probability = predict(model, values)
+                if cohort == "classic_3":
+                    probability = predict(model, values)
+                    structured = None
+                else:
+                    structured = predict_structured(model, values)
+                    probability = float(structured["probability"])
                 issuance = (
                     reference if replay else (at if now is not None else pd.Timestamp.now(tz="UTC"))
                 )
@@ -274,14 +326,13 @@ def run_once(
                     > config["online"]["max_prediction_delay_seconds"]
                 ):
                     continue
+                target_iso = (reference + config["market"]["horizon"] * delta).isoformat()
                 _save_prediction(
                     connection,
                     {
                         "model_id": name,
                         "reference_time": reference.isoformat(),
-                        "target_time": (
-                            reference + config["market"]["horizon"] * delta
-                        ).isoformat(),
+                        "target_time": target_iso,
                         "probability": probability,
                         "features": store.encode(values),
                         "reference_close": float(window.close.iloc[-1]),
@@ -295,13 +346,23 @@ def run_once(
                         "learned": 0,
                     },
                 )
+                if structured is not None:
+                    store.event(
+                        connection,
+                        issuance.isoformat(),
+                        "structured_forecast",
+                        {
+                            "model_id": name,
+                            "reference_time": reference.isoformat(),
+                            "target_time": target_iso,
+                            **structured,
+                        },
+                    )
                 forecasts.append(
                     {
                         "model_id": name,
                         "reference_time": reference.isoformat(),
-                        "target_time": (
-                            reference + config["market"]["horizon"] * delta
-                        ).isoformat(),
+                        "target_time": target_iso,
                         "probability_up": probability,
                         "probability_down_or_flat": 1.0 - probability,
                         "created_at": issuance.isoformat(),
@@ -490,9 +551,10 @@ def verify(state_path: Path) -> dict:
         if store.get_meta(connection, "schema_version") != store.SCHEMA_VERSION:
             raise DataError("Versión del estado incompatible")
         store.check_records(connection)
+        fnames = contract.get("feature_names", FEATURE_NAMES)
         models = store.load_models(connection)
         for name, model in models.items():
-            predict(model, [0.0] * len(FEATURE_NAMES))
+            predict(model, [0.0] * len(fnames))
             updates = connection.execute(
                 "SELECT coalesce(sum(learned),0) FROM predictions WHERE model_id=?", (name,)
             ).fetchone()[0]
@@ -534,7 +596,7 @@ def verify(state_path: Path) -> dict:
                 raise DataError("Predicción anterior al inicio del protocolo")
             if not 0 < row["probability"] < 1 or not math.isfinite(row["probability"]):
                 raise DataError("Probabilidad inválida")
-            if len(json.loads(row["features"])) != len(FEATURE_NAMES) or not all(
+            if len(json.loads(row["features"])) != len(fnames) or not all(
                 math.isfinite(v) for v in json.loads(row["features"])
             ):
                 raise DataError("Features inválidas")
@@ -610,4 +672,159 @@ def restore(backup_path: Path, state_path: Path) -> dict:
         "state_path": str(state_path),
         "restored_from": str(backup_path),
         "verified": result["verified"],
+    }
+
+
+def models_info(state_path: Path | None = None) -> dict:
+    """List registered mathematical models, cohorts, and persisted model state summaries."""
+    catalog = [spec.to_dict() for spec in MODEL_SPECS.values()]
+    cohorts = {k: list(v) for k, v in COHORT_DEFINITIONS.items()}
+    persisted: dict[str, dict] = {}
+    if state_path is not None and Path(state_path).is_file():
+        connection = store.connect(state_path)
+        try:
+            connection.execute("BEGIN")
+            loaded = store.load_models(connection)
+            for mid, m in loaded.items():
+                spec = MODEL_SPECS.get(mid)
+                params = m.get("params", {})
+                summary: dict = {
+                    "model_id": mid,
+                    "kind": m["kind"],
+                    "target_type": m.get(
+                        "target_type", spec.target_type if spec else "direction"
+                    ),
+                    "status": m["status"],
+                    "updates": m["updates"],
+                    "n_features": m["n_features"],
+                    "validation_state": m.get("evaluation", {}).get(
+                        "validation_state", "unvalidated"
+                    ),
+                }
+                if m["kind"] in ("logistic", "logistic_static", "logistic_adaptive"):
+                    w = params.get("weights", [])
+                    summary["weight_l2_norm"] = round(
+                        math.sqrt(sum(float(x) * float(x) for x in w)), 6
+                    )
+                    if m["kind"] == "logistic_static":
+                        summary["frozen"] = bool(params.get("frozen", False))
+                        summary["weight_updates"] = int(params.get("weight_updates", 0))
+                    if m["kind"] == "logistic_adaptive":
+                        summary["drift_monitor"] = params.get("drift_monitor", {})
+                elif m["kind"] == "kalman_filter":
+                    summary["diagnostics"] = params.get("diagnostics", {})
+                    summary["obs_noise"] = params.get("obs_noise")
+                    summary["calibrator"] = params.get("calibrator", {})
+                elif m["kind"] == "ewma_volatility":
+                    summary["current_volatility"] = round(
+                        math.sqrt(max(1e-10, float(params.get("variance", 1e-4)))), 6
+                    )
+                elif m["kind"] == "har_rv":
+                    summary["theta"] = [round(float(x), 5) for x in params.get("theta", [])]
+                elif m["kind"] == "quantile_regression":
+                    summary["raw_crossings"] = int(params.get("raw_crossings", 0))
+                persisted[mid] = summary
+        finally:
+            connection.close()
+    return {
+        "registered_models": catalog,
+        "cohorts": cohorts,
+        "persisted_state_path": str(state_path) if state_path else None,
+        "persisted_models": persisted,
+        "orders_enabled": False,
+    }
+
+
+def compare_models(state_path: Path) -> dict:
+    """Perform target-separated statistical and economic comparison on confirmed SQLite predictions."""
+    connection = store.connect(state_path)
+    try:
+        connection.execute("BEGIN")
+        contract = store.get_meta(connection, "protocol") or {}
+        market = contract.get("market", {"symbol": "BTCUSDT", "interval": "1h", "horizon": 1})
+        eval_cfg = contract.get("evaluation", {})
+        models = store.load_models(connection)
+        delta = pd.Timedelta(INTERVALS[market["interval"]])
+
+        bars_df = pd.read_sql_query(
+            "SELECT timestamp,open,high,low,close,volume FROM bars ORDER BY timestamp",
+            connection,
+        )
+        if not bars_df.empty:
+            bars_df["timestamp"] = pd.to_datetime(bars_df.timestamp, utc=True)
+            by_open = bars_df.set_index("timestamp")
+        else:
+            by_open = pd.DataFrame()
+
+        structured_map: dict[tuple[str, str], dict] = {}
+        for row in connection.execute(
+            "SELECT payload FROM events WHERE kind='structured_forecast'"
+        ):
+            payload = json.loads(row[0])
+            structured_map[(payload["model_id"], payload["reference_time"])] = payload
+
+        records = []
+        for raw in connection.execute(
+            "SELECT model_id,reference_time,target_time,probability,reference_close,target_close,label,status,horizon FROM predictions WHERE status='evaluated' ORDER BY reference_time,model_id"
+        ):
+            rec = dict(raw)
+            ref_ts = utc(rec["reference_time"])
+            tgt_ts = utc(rec["target_time"])
+            req = pd.date_range(ref_ts, tgt_ts - delta, freq=delta)
+            if not by_open.empty and req.isin(by_open.index).all():
+                r_ret, r_var = realized_target_metrics(
+                    float(rec["reference_close"]), by_open.loc[req]
+                )
+            else:
+                r_ret = (
+                    math.log(float(rec["target_close"]) / float(rec["reference_close"]))
+                    if rec.get("target_close") and rec.get("reference_close")
+                    else 0.0
+                )
+                r_var = max(1e-8, r_ret * r_ret)
+            rec["realized_return"] = r_ret
+            rec["realized_variance"] = r_var
+            extra = structured_map.get((rec["model_id"], rec["reference_time"]))
+            if extra:
+                for k in (
+                    "expected_return",
+                    "predictive_std",
+                    "pred_variance",
+                    "pred_volatility",
+                    "q10",
+                    "q50",
+                    "q90",
+                ):
+                    if k in extra:
+                        rec[k] = extra[k]
+            records.append(rec)
+
+        result = evaluate_target_specific_records(
+            records,
+            models,
+            symbol=market["symbol"],
+            interval=market["interval"],
+            horizon=int(market["horizon"]),
+            alpha=float(eval_cfg.get("alpha", 0.05)),
+            min_effect=float(eval_cfg.get("min_effect", 0.001)),
+        )
+        result["state_path"] = str(state_path)
+        result["mode"] = store.get_meta(connection, "mode")
+        result["orders_enabled"] = False
+        return result
+    finally:
+        connection.close()
+
+
+def champions(state_path: Path) -> dict:
+    """Return active Champion vs Challenger status per (symbol, interval, horizon, target_type)."""
+    comp = compare_models(state_path)
+    return {
+        "state_path": str(state_path),
+        "mode": comp.get("mode"),
+        "symbol": comp["symbol"],
+        "interval": comp["interval"],
+        "horizon": comp["horizon"],
+        "champions": comp["champions"],
+        "orders_enabled": False,
     }

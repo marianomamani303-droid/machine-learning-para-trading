@@ -260,3 +260,59 @@ Al retomar, ejecutar `git status --short` y verificar ambos estudios con `python
 - Hallazgo de auditoría: el log legado del dashboard usa 14 bps y close/close y permite backfill con `seed_recent_closed_predictions`. No se usó como prueba prospectiva ni como ledger económico de las nuevas recetas; los logs previos permanecen intactos. Corregir/separar esas semánticas antes de una confirmación prospectiva.
 - Próximos pasos: no repetir estos 120 ajustes ni elegir nuevos filtros sobre estos folds. Medir costos/latencia mediante quotes registradas; predeclarar una hipótesis de magnitud condicional/retorno neto y confirmarla en una ventana futura disjunta de todas las reservas. El indicio anterior de BTC diario del estudio financiero se conserva como hipótesis separada, sin declararlo rentable.
 - Verificar sin entrenar: `.venv/Scripts/python.exe scripts/verify_edge_research.py artifacts/edge_research/runs/20261018T015816_ca7033e2`. Los snapshots originales y el paquete final de herramientas conservan versiones y hashes; no sobrescribirlos.
+
+---
+
+## Laboratorio de Online Learning Adaptativo y Evaluación Estadística Secuencial — cierre 2026-10-28
+
+### 1. Resumen ejecutivo y alcance
+- Se evolucionó el motor de online learning (`src/trading_ml/online/`) hacia un **laboratorio científico de modelado adaptativo y evaluación estadística secuencial**, manteniendo operación 100% por línea de comandos (PowerShell/CLI), `orders_enabled = false`, cero filtración de futuro (causalidad estricta) y compatibilidad total hacia atrás con la base de datos activa `artifacts/online/state.sqlite3` y las 129 pruebas previas (`138 passed` en total junto con las 9 pruebas nuevas en `tests/test_online_adaptive.py`).
+- Informe técnico exhaustivo generado en `ONLINE_LEARNING_IMPROVEMENT_REPORT.md` (secciones A–L) y artefacto experimental reproducible en `artifacts/online/experiments/adaptive_online_study_results.json`.
+
+### 2. Nuevos modelos matemáticos online y controles por familia de target (`src/trading_ml/online/adaptive.py` y `models.py`)
+Se implementaron modelos incrementales con actualización en complejidad constante por barra y separación explícita por familia de objetivo (`target_type`):
+1. **Dirección (`target_type = "direction"`):**
+   - `baseline` (`beta_frequency`): control conjugado $\text{Beta}(1,1)$ de tasa direccional empírica causal.
+   - `logistic_static`: control lineal estático que actualiza pesos únicamente durante la ventana inicial de calentamiento (`static_warmup_updates = 200`) y luego congela permanentemente sus parámetros (`frozen = True`), permitiendo aislar el valor real de la adaptación continua frente a un modelo fijo.
+   - `logistic_slow` y `logistic_fast`: controles SGD incrementales preexistentes ($\eta = 0.01$ y $\eta = 0.10$).
+   - `logistic_adaptive`: regresión logística adaptativa con estandarización online de Welford estrictamente causal (estadísticos actualizados post-predicción), precondicionador diagonal RMSProp acotado, regularización Elastic Net proximal ($L_1$ soft-thresholding + $L_2$), proyección en bola $L_2$ y detector online de degradación de Brier.
+2. **Retorno esperado (`target_type = "expected_return"`):**
+   - `kalman_linear` (`kalman_filter`): modelo lineal en espacio de estados $\beta_t = (1-\lambda)\beta_{t-1} + w_t$, $r_{t+h} = \tilde{x}_t^\top \beta_t + \varepsilon_t$, con actualización de covarianza en **forma estabilizada de Joseph** $P_{t|t} = (I - K_t \tilde{x}_t^\top) P_{t|t-1} (I - K_t \tilde{x}_t^\top)^\top + R_t K_t K_t^\top$, simetrización explícita, cotas de autovalores $[10^{-9}, 10^2]$, varianza observacional adaptativa EWMA $R_t$, protección anti-duplicados por `target_id` y mapeo probabilístico direccional causalmente calibrado.
+   - `return_naive_baseline` (`return_baseline`): control causal de media y varianza exponencial móvil de retornos confirmados.
+3. **Volatilidad condicional (`target_type = "volatility"`):**
+   - `ewma_volatility`: estimador recursivo RiskMetrics combinando retorno cuadrado confirmado y estimador de rango de Parkinson causal.
+   - `har_rv`: modelo HAR-RV (Corsi) multiescala en log-varianza ($\log RV^{(1)}, \log RV^{(6)}, \log RV^{(24)}$) estimado mediante Mínimos Cuadrados Recursivos (RLS) con factor de olvido $\gamma = 0.995$, forma de Joseph y corrección de convexidad log-normal de Jensen $+\frac{1}{2}\hat{\sigma}_\eta^2$.
+   - `volatility_naive_baseline` (`volatility_baseline`): control base de varianza histórica móvil/acumulada.
+4. **Cuantiles condicionales (`target_type = "quantiles"`):**
+   - `quantile_regression`: regresión cuantil online ($\tau \in \{0.10, 0.50, 0.90\}$) mediante subgradiente de pérdida pinball precondicionado, anclaje a cuantiles empíricos y reordenamiento monótono post-inferencia (Chernozhukov et al.) que garantiza tasa de cruce post-reordenamiento exactamente $0.0$.
+   - `quantile_historical_baseline` (`quantile_baseline`): control base de cuantiles empíricos móviles causales.
+
+### 3. Ingeniería de features causal (`v1_base8` vs `v2_financial11` vs `v1_noise11`)
+- Se preservó `v1_base8` (8 features OHLCV originales, `warmup_bars = 21`) como modo por defecto para no alterar estados existentes.
+- Se añadió `v2_financial11` (`warmup_bars >= 64`) incorporando únicamente las tres señales microestructurales y de volatilidad de rango con respaldo empírico previo: `fin_liq_corwin_schultz_20` (spread efectivo de Corwin-Schultz a 20 barras), `fin_liq_range_impact_z63` (z-score causal a 63 barras de impacto de rango de Amihud) y `fin_vol_parkinson_ratio` (ratio de volatilidad de Parkinson corta/larga 5 vs 20 barras).
+- Se incluyó `v1_noise11` (`v1_base8` + 3 variables gaussianas i.i.d. deterministas por barra) como control negativo en estudios de ablación.
+
+### 4. Auditoría matemática y rediseño del evaluador estadístico secuencial (`src/trading_ml/online/evaluation.py`)
+- **Diagnóstico analítico cerrado de `hoeffding_azuma`:** Para predictores calibrados $p_{c,t} = 0.50 + \delta_t$ frente a $p_{b,t} = 0.50$, la diferencia pareada de Brier $d_t = (p_{c,t} - y_t)^2 - (0.50 - y_t)^2$ tiene media $\mathbb{E}[d_t] = -\delta_t^2$ y varianza verdadera $\text{Var}(d_t) = \delta_t^2(1 - 4\delta_t^2) \approx \delta_t^2 \in [0.002, 0.006]$. El test `hoeffding_azuma` asumía el peor rango teórico $[-1, 1]$ ($\sigma^2_{\text{worst}} = 1.0$, sobreestimando la varianza por $1/\delta^2 \approx 160\text{--}400\times$) y evaluaba cada bloque de $W=50$ observaciones de manera aislada mientras reducía el presupuesto $\alpha_k = \frac{\alpha}{2 M k(k+1)}$. Como resultado, para una ganancia realista de Brier de $0.003\text{--}0.005$, requería $N = 634.397\text{--}2.537.587$ observaciones no solapadas y tenía $\text{MDE}(W=50) = 0.4516$.
+- **Nuevo evaluador `empirical_bernstein` (`paired_brier_predictable_empirical_bernstein_alpha_spending`):** Utiliza la cota condicional predecible $\mathcal{F}_{t-1}$-medible $|d_t| \le 2|p_{c,t} - p_{b,t}|$, la varianza empírica HAC de Newey-West (lag 1) sobre observaciones desolapadas, secuencias de confianza acumulativas para validar superioridad genuina y monitoreo local por bloque para revocar/desactivar rápidamente modelos degradados tras un cambio de régimen. Reduce el tamaño muestral requerido en $>200\times$ ($\text{MDE}(N=500) = 0.0109$ vs $0.1435$) manteniendo la tasa de falsos positivos en `no_edge` y `serial_dependence` en $0.00 \le \alpha$.
+
+### 5. Resultados empíricos principales (`artifacts/online/experiments/adaptive_online_study_results.json`)
+- **Volatilidad condicional (hallazgo positivo validado):**
+  - En `BTCUSDT` `1h` (`2024-01-01` a `2024-06-01`, $N = 3.584$ predicciones evaluadas), tanto `ewma_volatility` ($\text{QLIKE} = -9.45236$, $\text{MAE} = 0.002700$, $p_{\text{EB}} < 10^{-4}$) como `har_rv` con `v2_financial11` ($\text{QLIKE} = -9.48749$, $\text{MAE} = 0.002538$, $\text{RMSE} = 0.003603$, $\Delta\text{QLIKE} = -0.15755$, $p_{\text{EB}} < 10^{-4}$) superan de manera estadísticamente significativa a `volatility_naive_baseline` ($\text{QLIKE} = -9.32994$, $\text{MAE} = 0.003036$) y son promovidos automáticamente a Champion de volatilidad.
+  - En `BTCUSDT` `1d` ($N = 916$), `har_rv` con `v2_financial11` alcanza el mejor QLIKE descriptivo ($-6.04549$ vs $-6.01034$ del baseline) y el menor MAE de volatilidad ($0.013601\text{--}0.014135$ vs $0.015553$ del baseline).
+- **Dirección y evaluación económica con costos (`10 bps` por lado):**
+  - En `BTCUSDT` `1h`, `logistic_static` ($\text{Brier} = 0.249289$, $\text{AUC} = 0.53495$, retorno bruto $+16.38\%$) y `logistic_adaptive` ($\text{Brier} = 0.249676$, $\text{Accuracy} = 52.26\%$ en `v1_base8` y $52.65\%$ en `v2_financial11`) mejoran descriptivamente a `baseline` ($\text{Brier} = 0.250323$) y a `logistic_slow`/`logistic_fast`, pero la ganancia de Brier ($\Delta \approx -0.0010$) no cruza la barrera secuencial y la rotación intradía convierte el retorno bruto positivo en retorno neto negativo tras `10 bps` por operación.
+  - En `BTCUSDT` `1d`, `logistic_adaptive` lidera descriptivamente ($\text{Brier} = 0.249867$ en `v1_base8`, $\text{Brier} = 0.249843$ en `v2_financial11`, frente a $0.252074$ de `logistic_static` y $0.255430$ de `logistic_slow`), con retorno neto positivo ($+22.08\%$, Sharpe neto $1.04$, drawdown $-4.07\%$ en `v1_base8`), aunque con solo $12\text{--}15$ barras activas y $p_{\text{EB}} = 0.85 > \alpha_{\text{adj}}$, por lo que el selector Champion–Challenger retiene conservadoramente a `baseline` como Champion activo.
+  - El nuevo evaluador `empirical_bernstein` detecta y desactiva automáticamente a `logistic_fast` y `quantile_regression` cuando su sobreconfianza degrada el Brier direccional, mientras que `hoeffding_azuma` permanece ciego (`unvalidated` en todos los casos).
+
+### 6. Comandos PowerShell / CLI disponibles
+```powershell
+.\.venv\Scripts\python.exe -m trading_ml online verify
+.\.venv\Scripts\python.exe -m trading_ml online models --config config/online_adaptive_lab.toml
+.\.venv\Scripts\python.exe -m trading_ml online compare --config config/online_adaptive_lab.toml
+.\.venv\Scripts\python.exe -m trading_ml online champions --config config/online_adaptive_lab.toml
+.\.venv\Scripts\python.exe -m trading_ml online audit-eval
+.\.venv\Scripts\python.exe -m trading_ml online experiment --suite
+.\scripts\trading-online.ps1 models --config config/online_adaptive_lab.toml
+```
+

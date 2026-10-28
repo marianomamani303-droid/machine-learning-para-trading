@@ -74,6 +74,11 @@ def add_commands(commands: Any) -> None:
         "restore": "Restaurar una copia en una ubicación nueva",
         "catalog": "Consultar el catálogo local de modelos históricos y estrategias",
         "infer": "Inferencia causal de solo lectura con un modelo histórico explícito",
+        "models": "Consultar modelos matemáticos adaptativos registrados y estado de aprendizaje",
+        "compare": "Comparación estadística y económica separada por tipo de target",
+        "champions": "Consultar el Champion activo frente al Baseline por activo, horizonte y target",
+        "experiment": "Ejecutar experimento histórico prequential aislado sin tocar cuarentena",
+        "audit-eval": "Ejecutar auditoría matemática y simulación Monte Carlo del evaluador secuencial",
     }
     for name, description in descriptions.items():
         action = actions.add_parser(name, help=description)
@@ -113,6 +118,33 @@ def add_commands(commands: Any) -> None:
                 action.add_argument("--source", type=Path, required=True)
                 action.add_argument("--peer-source", type=Path)
                 action.add_argument("--reference", help="Cierre UTC que se desea analizar")
+        elif name == "experiment":
+            action.add_argument("--suite", action="store_true", help="Ejecutar batería completa H1/D1")
+            action.add_argument("--symbol", default="BTCUSDT")
+            action.add_argument("--interval", default="1h")
+            action.add_argument("--start", default="2024-01-01")
+            action.add_argument("--end", default="2024-06-01")
+            action.add_argument("--horizon", type=_positive_int, default=1)
+            action.add_argument(
+                "--feature-set",
+                choices=["v1_base8", "v2_financial11", "v1_noise11"],
+                default="v1_base8",
+            )
+            action.add_argument(
+                "--cohort",
+                choices=["classic_3", "directional_lab", "adaptive_lab"],
+                default="adaptive_lab",
+            )
+            action.add_argument(
+                "--evaluator",
+                choices=["hoeffding_azuma", "empirical_bernstein"],
+                default="empirical_bernstein",
+            )
+            action.add_argument("--source", type=Path)
+            action.add_argument("--output", type=Path)
+        elif name == "audit-eval":
+            action.add_argument("--trials", type=_positive_int, default=100)
+            action.add_argument("--steps", type=_positive_int, default=500)
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -156,6 +188,66 @@ def dispatch(args: argparse.Namespace) -> int:
     try:
         if args.online_command in {"catalog", "infer"}:
             return _historical_snapshot(args)
+        if args.online_command == "audit-eval":
+            from trading_ml.online.evaluation import run_evaluator_simulation_study
+
+            _emit(
+                run_evaluator_simulation_study(
+                    n_trials=args.trials,
+                    n_steps=args.steps,
+                )
+            )
+            return 0
+        if args.online_command == "experiment":
+            from trading_ml.online.experiment import (
+                load_experiment_candles,
+                run_comprehensive_laboratory_study,
+                run_prequential_replay,
+            )
+
+            if args.suite:
+                out_dir = args.output or Path("artifacts/online/experiments")
+                _emit(run_comprehensive_laboratory_study(output_dir=out_dir))
+                return 0
+            candles = load_experiment_candles(
+                symbol=args.symbol,
+                interval=args.interval,
+                start=args.start,
+                end=args.end,
+                horizon=args.horizon,
+                source=args.source,
+            )
+            res = run_prequential_replay(
+                candles,
+                symbol=args.symbol,
+                interval=args.interval,
+                horizon=args.horizon,
+                feature_mode=args.feature_set,
+                cohort=args.cohort,
+                evaluator_method=args.evaluator,
+            )
+            if args.output:
+                from trading_ml.online import store
+
+                out_path = store.local_path(args.output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(json.dumps(res, indent=2, ensure_ascii=False), encoding="utf-8")
+            _emit(
+                {
+                    "symbol": res["symbol"],
+                    "interval": res["interval"],
+                    "horizon": res["horizon"],
+                    "feature_mode": res["feature_mode"],
+                    "cohort": res["cohort"],
+                    "evaluator_method": res["evaluator_method"],
+                    "bars_total": res["bars_total"],
+                    "evaluated_predictions_total": res["evaluated_predictions_total"],
+                    "champions": res["champions"],
+                    "targets": res["targets"],
+                    "performance_profile": res["performance_profile"],
+                }
+            )
+            return 0
         if args.state is None:
             with args.online_config.open("rb") as stream:
                 protocol = tomllib.load(stream)
@@ -177,6 +269,12 @@ def dispatch(args: argparse.Namespace) -> int:
             )
         elif args.online_command == "report":
             _emit(service.report(args.state))
+        elif args.online_command == "models":
+            _emit(service.models_info(args.state))
+        elif args.online_command == "compare":
+            _emit(service.compare_models(args.state))
+        elif args.online_command == "champions":
+            _emit(service.champions(args.state))
         elif args.online_command == "verify":
             result = service.verify(args.state)
             _emit(result)

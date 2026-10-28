@@ -9,6 +9,17 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from trading_ml.online.adaptive import (
+    ADAPTIVE_MODEL_KINDS,
+    COHORT_DEFINITIONS,
+    MODEL_SPECS,
+    AdaptiveOnlineModel,
+    learn_adaptive,
+    new_adaptive_model,
+    predict_adaptive_structured,
+    validate_adaptive_params,
+)
+
 PROBABILITY_EPSILON = 1e-6
 
 
@@ -30,14 +41,15 @@ def validate_model(model: dict[str, Any]) -> None:
     params = model.get("params")
     if not isinstance(params, dict):
         raise ValueError("Estado de modelo: params debe ser un objeto")
-    if model.get("kind") == "beta_frequency":
+    kind = model.get("kind")
+    if kind == "beta_frequency":
         if set(params) != {"positive", "negative"} or not all(
             _finite_number(value) and value > 0 for value in params.values()
         ):
             raise ValueError("Contadores beta deben ser positivos y finitos")
         if not math.isfinite(params["positive"] + params["negative"]):
             raise ValueError("La suma de contadores beta debe ser finita")
-    elif model.get("kind") == "logistic":
+    elif kind == "logistic":
         if set(params) != {"weights", "intercept", "learning_rate", "l2"}:
             raise ValueError("Parámetros logísticos ausentes o desconocidos")
         weights = params["weights"]
@@ -53,6 +65,8 @@ def validate_model(model: dict[str, Any]) -> None:
             raise ValueError("learning_rate debe ser finito y estar en (0, 1]")
         if not _finite_number(params["l2"]) or not 0 <= params["l2"] <= 1:
             raise ValueError("l2 debe ser finito y estar en [0, 1]")
+    elif kind in ADAPTIVE_MODEL_KINDS:
+        validate_adaptive_params(kind, params, model["n_features"])
     else:
         raise ValueError("Modelo incremental desconocido")
     if "evaluation" in model:
@@ -80,32 +94,45 @@ def validate_model(model: dict[str, Any]) -> None:
                     raise ValueError(f"Fecha de evaluación inválida: {name}") from exc
 
 
-def new_models(n_features: int, seed: int = 42) -> dict[str, dict[str, Any]]:
+def new_models(
+    n_features: int,
+    seed: int = 42,
+    *,
+    cohort: str = "classic_3",
+    options: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return a fixed cohort; zero initialization deliberately needs no RNG."""
     if isinstance(n_features, bool) or not isinstance(n_features, int) or n_features < 1:
         raise ValueError("n_features debe ser un entero positivo")
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError("seed debe ser un entero entre 0 y 2**32-1")
-    shared = {"status": "active", "updates": 0, "n_features": n_features, "seed": seed}
-    models = {
-        "baseline": {
-            **shared,
-            "kind": "beta_frequency",
-            "params": {"positive": 1.0, "negative": 1.0},
+    if cohort not in COHORT_DEFINITIONS:
+        raise ValueError(f"Cohorte online desconocida: {cohort}")
+    if cohort == "classic_3":
+        shared = {"status": "active", "updates": 0, "n_features": n_features, "seed": seed}
+        models: dict[str, dict[str, Any]] = {
+            "baseline": {
+                **shared,
+                "kind": "beta_frequency",
+                "params": {"positive": 1.0, "negative": 1.0},
+            }
         }
+        for name, rate in (("logistic_slow", 0.01), ("logistic_fast", 0.1)):
+            models[name] = {
+                **shared,
+                "kind": "logistic",
+                "params": {
+                    "weights": [0.0] * n_features,
+                    "intercept": 0.0,
+                    "learning_rate": rate,
+                    "l2": 0.001,
+                },
+            }
+        return models
+    return {
+        model_id: new_adaptive_model(model_id, n_features, seed=seed, options=options)
+        for model_id in COHORT_DEFINITIONS[cohort]
     }
-    for name, rate in (("logistic_slow", 0.01), ("logistic_fast", 0.1)):
-        models[name] = {
-            **shared,
-            "kind": "logistic",
-            "params": {
-                "weights": [0.0] * n_features,
-                "intercept": 0.0,
-                "learning_rate": rate,
-                "l2": 0.001,
-            },
-        }
-    return models
 
 
 def _features(model: dict[str, Any], features: list[float]) -> list[float]:
@@ -116,6 +143,18 @@ def _features(model: dict[str, Any], features: list[float]) -> list[float]:
         raise ValueError("Las features deben ser finitas")
     # Fixed clipping has no fitted state and cannot consume future statistics.
     return [max(-10.0, min(10.0, value)) for value in values]
+
+
+def predict_structured(model: dict[str, Any], features: list[float]) -> dict[str, Any]:
+    """Predict structured target outputs without changing weights, counters, or preprocessing state."""
+    validate_model(model)
+    values = _features(model, features)
+    result = predict_adaptive_structured(model, values)
+    prob = float(result["probability"])
+    if not math.isfinite(prob):
+        raise ValueError("El estado del modelo produjo una probabilidad no finita")
+    result["probability"] = max(PROBABILITY_EPSILON, min(1.0 - PROBABILITY_EPSILON, prob))
+    return result
 
 
 def predict(model: dict[str, Any], features: list[float]) -> float:
@@ -137,6 +176,8 @@ def predict(model: dict[str, Any], features: list[float]) -> float:
             if score >= 0
             else (math.exp(score) / (1.0 + math.exp(score)))
         )
+    elif model["kind"] in ADAPTIVE_MODEL_KINDS:
+        probability = float(predict_adaptive_structured(model, values)["probability"])
     else:
         raise ValueError(f"Modelo incremental desconocido: {model['kind']}")
     if not math.isfinite(probability):
@@ -144,7 +185,15 @@ def predict(model: dict[str, Any], features: list[float]) -> float:
     return max(PROBABILITY_EPSILON, min(1.0 - PROBABILITY_EPSILON, probability))
 
 
-def learn(model: dict[str, Any], features: list[float], label: int) -> None:
+def learn(
+    model: dict[str, Any],
+    features: list[float],
+    label: int,
+    *,
+    realized_return: float | None = None,
+    realized_variance: float | None = None,
+    target_id: str | None = None,
+) -> None:
     """Apply one confirmed label; disabled models retain their last state."""
     validate_model(model)
     if label not in (0, 1):
@@ -156,6 +205,7 @@ def learn(model: dict[str, Any], features: list[float], label: int) -> None:
     if model["kind"] == "beta_frequency":
         key = "positive" if label == 1 else "negative"
         params[key] += 1.0
+        updated_flag = True
     elif model["kind"] == "logistic":
         error = predict(model, features) - label
         rate = params["learning_rate"]
@@ -165,8 +215,34 @@ def learn(model: dict[str, Any], features: list[float], label: int) -> None:
             for weight, value in zip(params["weights"], values, strict=True)
         ]
         params["intercept"] -= rate * error
+        updated_flag = True
+    elif model["kind"] in ADAPTIVE_MODEL_KINDS:
+        params, updated_flag = learn_adaptive(
+            model,
+            values,
+            label,
+            realized_return=realized_return,
+            realized_variance=realized_variance,
+            target_id=target_id,
+        )
     else:
         raise ValueError(f"Modelo incremental desconocido: {model['kind']}")
+    if not updated_flag:
+        return
     updated = {**model, "params": params, "updates": model["updates"] + 1}
     validate_model(updated)
     model.update(params=params, updates=updated["updates"])
+
+
+__all__ = [
+    "ADAPTIVE_MODEL_KINDS",
+    "COHORT_DEFINITIONS",
+    "MODEL_SPECS",
+    "PROBABILITY_EPSILON",
+    "AdaptiveOnlineModel",
+    "learn",
+    "new_models",
+    "predict",
+    "predict_structured",
+    "validate_model",
+]
