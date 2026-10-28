@@ -1,6 +1,6 @@
 # Investigación cuantitativa con Deep Momentum Networks
 
-Investigación adicional de ventaja predictiva y económica en **BTC/ETH, 1h, 4h y diario**: [resultados completos](EDGE_RESEARCH_RESULTS.md) y [protocolo](EDGE_RESEARCH.md). Se completaron 120 ajustes con walk-forward purgado, controles de precio/ruido y estrés de costos/demora. Cinco contrastes superan a p=0,5, ninguno demuestra aporte incremental de las nuevas señales ni ventaja económica robusta. Los 75.136 artefactos anteriores permanecen intactos; no se promovieron modelos. El dashboard incorpora una vista de estas decisiones de investigación.
+Investigación adicional de ventaja predictiva y económica en **BTC/ETH, 1h, 4h y diario**: [resultados completos](EDGE_RESEARCH_RESULTS.md) y [protocolo](EDGE_RESEARCH.md). Se completaron 120 ajustes con walk-forward purgado, controles de precio/ruido y estrés de costos/demora. Cinco contrastes superan a p=0,5, ninguno demuestra aporte incremental de las nuevas señales ni ventaja económica robusta. Los 75.136 artefactos anteriores permanecen intactos; no se promovieron modelos. Las decisiones de investigación se conservan en sus informes y artefactos.
 
 El núcleo de investigación DMN incorpora PyTorch, LSTM con posiciones continuas y pérdidas de Sharpe/retorno, controles lineal/MLP/XGBoost, features causales, riesgo por volatilidad, cartera con costos y walk-forward purgado. **120 ajustes sobre BTC/ETH no demostraron una ventaja robusta**; no se promovieron modelos. Empezar por [DMN_GUIDE.md](DMN_GUIDE.md), consultar metodología en [DMN_RESEARCH.md](DMN_RESEARCH.md), resultados en [DMN_RESULTS.md](DMN_RESULTS.md) y continuidad de sesiones en [CODEX_PROGRESS.md](CODEX_PROGRESS.md). Los estudios históricos siguientes conservan su trazabilidad.
 
@@ -31,6 +31,8 @@ python -m venv .venv
 
 ## Configuración
 
+El seguimiento continuo usa [config/online.toml](config/online.toml) y su estado SQLite independiente. Sus comandos aceptan `--config` y `--state` después de `online` o después de la acción. La configuración histórica descrita a continuación pertenece a los comandos de investigación existentes.
+
 Editar [config/default.toml](config/default.toml). Los comandos admiten `--config ruta.toml` **antes** del subcomando. `paths.root` se resuelve desde el directorio actual; ejecutar los ejemplos desde la raíz del proyecto.
 
 | Sección | Configuración |
@@ -45,7 +47,64 @@ Editar [config/default.toml](config/default.toml). Los comandos admiten `--confi
 
 Se admiten `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`. Cripto se eligió por su calendario continuo y OHLCV público sin claves. El proveedor usa [archivos públicos oficiales de Binance](https://github.com/binance/binance-public-data): ZIP mensual y checksum SHA-256. Las fechas desde 2025 usan microsegundos; el lector soporta también milisegundos.
 
-La descarga cubre meses cerrados. `end` no puede superar el primer día del mes actual UTC; la publicación mensual puede demorarse hasta el primer lunes. Un archivo faltante provoca un error explícito: no se reemplaza por datos ficticios. La configuración inicial termina en `2026-10-01`; una predicción de ese archivo es histórica y avisa su antigüedad. Para datos dentro del mes corriente se necesita agregar un proveedor diario/incremental, pendiente en el roadmap. Con intervalos de minutos, la descarga y memoria requeridas aumentan mucho: comenzar con un rango corto.
+La descarga histórica cubre meses cerrados. `end` no puede superar el primer día del mes actual UTC; la publicación mensual puede demorarse hasta el primer lunes. Un archivo faltante provoca un error explícito: no se reemplaza por datos ficticios. La configuración inicial termina en `2026-10-01`; una predicción de ese archivo es histórica y avisa su antigüedad. El comando `online run` consulta velas incrementales cerradas dentro del mes corriente mediante el proveedor público. Con intervalos de minutos, la descarga y memoria requeridas aumentan mucho: comenzar con un rango corto.
+
+## Aprendizaje en línea desde PowerShell
+
+La aplicación web de Python se retiró. El motor continuo observa mercado y emite probabilidades; aprende solamente cuando la vela objetivo está cerrada y su resultado confirmado. Conserva las predicciones originales, actualizaciones de modelos y estado de recuperación en SQLite. Una cohorte nueva de dos regresiones logísticas incrementales se compara con un baseline de frecuencia. Este estado es independiente de los modelos congelados y reservas de los estudios históricos.
+
+```powershell
+# Desde la raíz del proyecto, sin activar el entorno:
+.\.venv\Scripts\python.exe -m trading_ml online init
+.\.venv\Scripts\python.exe -m trading_ml online run --once
+.\.venv\Scripts\python.exe -m trading_ml online run
+# Ctrl+C termina el seguimiento; el siguiente run continúa desde SQLite.
+.\.venv\Scripts\python.exe -m trading_ml online status
+.\.venv\Scripts\python.exe -m trading_ml online predictions --limit 20
+.\.venv\Scripts\python.exe -m trading_ml online predictions --status pending --model-id logistic_slow
+.\.venv\Scripts\python.exe -m trading_ml online report
+.\.venv\Scripts\python.exe -m trading_ml online verify
+
+# Catálogo local e inferencia de modelos históricos, sin actualizar su estado:
+.\.venv\Scripts\python.exe -m trading_ml online catalog --symbol BTCUSDT --interval 1d
+# Tomar model_id del catálogo; el CSV debe cumplir el contrato temporal del modelo.
+$catalog = .\.venv\Scripts\python.exe -m trading_ml online catalog --symbol BTCUSDT --interval 1d | ConvertFrom-Json
+$modelId = $catalog.models[0].model_id
+.\.venv\Scripts\python.exe -m trading_ml online infer --model-id $modelId --source artifacts/data/raw.csv --symbol BTCUSDT --interval 1d
+
+# Copia coherente y restauración en una ubicación nueva:
+.\.venv\Scripts\python.exe -m trading_ml online backup --output artifacts/online/manual_backup.sqlite3
+.\.venv\Scripts\python.exe -m trading_ml online restore --backup artifacts/online/manual_backup.sqlite3 --state artifacts/online/restored.sqlite3
+
+# Wrapper que también funciona desde otro directorio:
+.\scripts\trading-online.ps1 run --once
+```
+
+`run` permanece activo por defecto. `--once` ejecuta un ciclo; `--cycles 3` limita el proceso a tres intentos. `--poll-seconds 30` reemplaza la espera del protocolo. Cada ciclo emite una línea JSON completa a stdout; los diagnósticos van a stderr. En PowerShell: `... online status | ConvertFrom-Json`. Los errores temporales de conexión conservan el estado y aplican reintentos con espera creciente; un contrato inválido o una verificación fallida produce código de salida 1.
+
+El seguimiento funciona mientras el proceso está ejecutándose. Cerrar la terminal o apagar el equipo lo detiene; SQLite permite retomarlo al volver a ejecutar `run`. La ejecución permanente como tarea programada o servicio requiere configuración adicional del sistema y no está instalada por este proyecto.
+
+`predictions` permite consultar `probability_up` (probabilidad de subida), `probability_down_or_flat`, los cierres de referencia y objetivo, y los resultados confirmados. Devuelve un arreglo `forecasts`; `--limit` admite de 1 a 1000 filas (20 por defecto), `--model-id` filtra un modelo y `--status` admite `pending`, `evaluated` o `invalid_gap`. Una observación pendiente conserva `label = null` hasta confirmar su resultado. Ejemplo de tabla en PowerShell:
+
+```powershell
+$predictionResult = .\.venv\Scripts\python.exe -m trading_ml online predictions --limit 10 | ConvertFrom-Json
+$predictionResult.forecasts | Select-Object model_id, reference_time, target_time, probability_up, status, label
+```
+
+`catalog` conserva la disponibilidad y las limitaciones registradas de cada modelo. `infer` exige IDs explícitos, acepta `--peer-source` para features cruzadas y devuelve errores por modelo sin detener los demás. Sus resultados se etiquetan como snapshots de lectura: no se agregan al seguimiento prospectivo ni sirven como validación futura. Los guards existentes de velas cerradas, cutoff y artefactos íntegros siguen aplicándose.
+
+Para comprobar el motor con datos locales, proporcionar un CSV OHLCV de desarrollo y marcar explícitamente la simulación histórica. Crear una copia del protocolo y ajustar su `market.interval` a la temporalidad del CSV, y `online.start_at` al comienzo de la simulación. El protocolo live comienza el 2026-10-28: con historia anterior no emitirá predicciones. Usar una base distinta y excluir las reservas selladas para no mezclar evidencia retrospectiva y prospectiva:
+
+```powershell
+Copy-Item config/online.toml config/online_replay.toml
+# Editar config/online_replay.toml y preparar datos/desarrollo_ohlcv.csv antes de continuar.
+.\.venv\Scripts\python.exe -m trading_ml online run --config config/online_replay.toml --source datos/desarrollo_ohlcv.csv --replay --state artifacts/online/replay.sqlite3 --once
+.\.venv\Scripts\python.exe -m trading_ml online report --state artifacts/online/replay.sqlite3
+New-Item -ItemType Directory -Force artifacts/test_runs | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/test_online_cli.py tests/test_online_models.py tests/test_online_service.py -q --basetemp artifacts/test_runs/online_manual
+```
+
+La comparación usa predicciones anteriores a sus resultados y observaciones comunes entre modelos. La desactivación requiere evidencia persistente en bloques de objetivos sin solapamiento, con control conservador de comparaciones múltiples y evaluaciones sucesivas por gasto de alfa. Los modelos desactivados y sus predicciones se conservan para auditoría. La validación se refiere a mejora predictiva en Brier frente al baseline; no demuestra rentabilidad después de costos. Se conservan snapshots de los estados asociados a decisiones favorables: documentan el proceso de aprendizaje incremental evaluado y no validan por sí solos los pesos congelados para otro período. Un replay conserva su etiqueta de simulación y no puede mezclarse con la evidencia prospectiva. El motor no envía órdenes ni reemplaza los modelos históricos registrados. Los módulos auxiliares `dashboard/` permanecen por compatibilidad de datos, catálogos, inferencia y pruebas, sin una aplicación web ejecutable. Para sus adaptadores opcionales usar el extra `.[live]`.
 
 ## Comandos
 
@@ -318,3 +377,17 @@ Los módulos continúan offline. Las estrategias, modelos originales y reservas 
 Los comandos `market-download`, `market-study`, `market-train`, `market-predict`, `market-evaluate` y `market-backtest` agregan EUR/USD, USD/JPY, GBP/USD, USD/CHF y AUD/USD, conservando BTC/USDT y ETH/USDT. Datos Forex H1 bid/ask de FXCM por HTTPS y adaptador alternativo Dukascopy, snapshots UTC, H1/H4/D1, sesiones de Nueva York con DST y ejecución sobre H1 aun cuando el modelo usa velas agregadas. Cada activo tiene modelos y resultados independientes en `artifacts/multimarket/`.
 
 El estudio compara dirección, rentabilidad neta, Triple Barrier y meta-labeling OOF con costos, calibración temporal, ablaciones y baselines. Primero se exige el piloto EURUSD; luego se habilita la comparación con los otros activos. No modifica producción ni envía órdenes. La investigación de proveedores, los supuestos de ejecución, las limitaciones de licencia/transporte y todos los comandos están en [MULTIMARKET_RESEARCH.md](MULTIMARKET_RESEARCH.md).
+
+## Reglas y aprendizaje por refuerzo con una señal congelada
+
+`trading_ml.rl_signal` compara la logística BTC/USDT diaria `top_core_3` con reglas
+fijas, una banda de no operación y un DQN pequeño de tres exposiciones (0/25/50%).
+Comparte probabilidades causales, ejecución, restricciones y costos supuestos;
+separa capacidad predictiva de gestión de posiciones. Tres semillas y presupuesto
+fijo, validación interna, replay sólo de entrenamiento, controles long escalado
+y cash, estrés de costos/demora y bootstrap pareado con multiplicidad explícita.
+La historia reutilizada se identifica como exploratoria y las reservas se conservan.
+
+Diseño previo en [RL_SIGNAL_PROTOCOL.md](RL_SIGNAL_PROTOCOL.md), instrucciones y
+verificación sin entrenamiento en [RL_SIGNAL_GUIDE.md](RL_SIGNAL_GUIDE.md), resultados
+en [RL_SIGNAL_RESULTS.md](RL_SIGNAL_RESULTS.md). No ejecuta órdenes reales.

@@ -1,0 +1,71 @@
+# Registered before any RL fitting; see RL_SIGNAL_PROTOCOL.md.
+[data]
+symbol = "BTCUSDT"
+interval = "1d"
+source_index = "artifacts/expansion/datasets/crypto_d4dca621c1adedb8.json"
+start = "2021-01-01"
+stop = "2025-07-01"
+agent_history_start = "2022-01-01"
+boundaries = ["2023-01-01", "2024-01-01", "2025-01-01", "2025-07-01"]
+validation_days = 120
+embargo_days = 6
+inner_block_days = 90
+
+[predictor]
+recipe = "top_core_3"
+C = 1.0
+seed = 42
+max_iter = 2000
+minimum_rows = 180
+
+[training]
+seeds = [42, 1729, 2027]
+hidden = [32, 32]
+maximum_steps = 6000
+checkpoint_every = 1000
+batch_size = 64
+replay_capacity = 10000
+warmup_steps = 256
+update_every = 4
+target_every = 250
+learning_rate = 0.001
+gamma = 0.99
+epsilon_start = 1.0
+epsilon_end = 0.05
+epsilon_decay_steps = 4000
+gradient_clip = 10.0
+reward_scale = 100.0
+risk_penalty = 0.5
+
+[portfolio]
+actions = [0.0, 0.25, 0.5]
+annual_risk_budget = 0.20
+initial_capital = 10000.0
+commission_bps = 10.0
+half_spread_bps = 2.0
+slippage_bps = 5.0
+# Conservative engineering assumptions, NOT historical exchange filters.
+quantity_step = 0.00001
+minimum_quantity = 0.00001
+minimum_notional = 10.0
+rebalance_band = 0.025
+fixed_entry = 0.55
+band_exit = 0.50
+age_scale_days = 365
+
+[inference]
+bootstrap_seed = 99173
+samples = 4000
+block_days = [7, 30]
+alpha = 0.05
+minimum_total_log_gain = 0.02
+minimum_relative_drawdown = -0.05
+scenarios = ["base", "double", "delay"]
+comparisons = ["band", "fixed", "long_scaled", "cash"]
+
+[prospective]
+start = "2027-11-01"
+end_exclusive = "2028-11-01"
+evaluate_not_before = "2028-11-02"
+minimum_round_trips = 30
+automatic_execution = false

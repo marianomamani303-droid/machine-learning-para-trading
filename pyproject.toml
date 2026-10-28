@@ -13,7 +13,7 @@ dependencies = ["numpy>=2.0,<3", "pandas>=2.2,<4", "scikit-learn>=1.6,<2", "xgbo
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 research = ["lightgbm>=4.7,<5", "catboost>=1.2.10,<2", "joblib>=1.6,<2"]
 dmn = ["torch>=2.9,<3", "matplotlib>=3.10,<4"]
-dashboard = ["streamlit>=1.40,<2", "plotly>=5.20,<8", "websocket-client>=1.8,<2", "filelock>=3.12,<4"]
+live = ["websocket-client>=1.8,<2", "filelock>=3.12,<4"]
 
 [project.scripts]
 trading-ml = "trading_ml.cli:main"

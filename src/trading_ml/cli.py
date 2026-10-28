@@ -145,13 +145,9 @@ def parser() -> argparse.ArgumentParser:
         help="Evaluar la reserva futura completa con los tres sistemas congelados",
     )
     future.add_argument("--raw", type=Path, required=True)
-    dash = commands.add_parser(
-        "dashboard",
-        help="Iniciar dashboard web local minimalista para inferencia en tiempo real",
-    )
-    dash.add_argument("--host", default="127.0.0.1")
-    dash.add_argument("--port", type=int, default=8501)
-    dash.add_argument("--headless", action="store_true")
+    from trading_ml.online.cli import add_commands as add_online_commands
+
+    add_online_commands(commands)
     return result
 
 
@@ -163,28 +159,11 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     try:
-        settings = load_settings(args.config)
-        if args.command == "dashboard":
-            import os
-            import subprocess
+        if args.command == "online":
+            from trading_ml.online.cli import dispatch as dispatch_online
 
-            app_path = Path(__file__).resolve().parent / "dashboard" / "app.py"
-            env = os.environ.copy()
-            env["TRADING_ML_ROOT"] = str(settings.root)
-            cmd = [
-                sys.executable,
-                "-m",
-                "streamlit",
-                "run",
-                str(app_path),
-                "--server.address",
-                str(args.host),
-                "--server.port",
-                str(args.port),
-            ]
-            if args.headless:
-                cmd.extend(["--server.headless", "true"])
-            return subprocess.call(cmd, env=env)
+            return dispatch_online(args)
+        settings = load_settings(args.config)
         if args.command.startswith("market-"):
             from trading_ml.multimarket.cli import dispatch
 

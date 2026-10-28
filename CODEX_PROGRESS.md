@@ -1,4 +1,100 @@
-# Progreso persistente — Deep Momentum Networks
+# Memoria persistente del proyecto de machine learning de trading
+
+Actualizado: 2026-10-28 (America/Buenos_Aires). **Implementación online/CLI terminada y verificada; siguiente etapa: acumular observaciones prospectivas con el proceso activo.** Esta cabecera es el estado vigente; el registro anterior se conserva debajo como historial, no como instrucciones activas.
+
+## 1. Objetivo general del proyecto
+
+Construir un laboratorio local que analice mercado continuamente, emita predicciones sin operar, confirme resultados y aprenda incrementalmente. Comparar modelos sobre observaciones futuras comunes, conservar los validados y desactivar los persistentemente inferiores. Usar CLI en PowerShell, pruebas automatizadas y recuperación de estado. El código local es la fuente de verdad; no consultar ni descargar GitHub, reemplazar cambios locales ni escribir fuera del workspace. No abrir reservas históricas para seleccionar modelos online.
+
+## 2. Arquitectura actual
+
+- `src/trading_ml/`: motor Python; `data`, `features`, `training`, `prediction`, `evaluation`, `backtesting`, `models` y módulos de investigación DMN, RL y multimercado.
+- `config/`: protocolos TOML. `scripts/`: análisis/verificación. `tests/`: pruebas pytest. `artifacts/`: datos, modelos y resultados locales, excluidos de Git.
+- Arquitectura previa: modelos congelados XGBoost, logística, árboles, DMN y RL; datos CSV/manifiestos SHA-256; catálogo/inferencia/feed/log legado en `dashboard/`.
+- Nueva arquitectura implementada: `online/{config,data,store,models,evaluation,service,cli}.py`, SQLite esquema 2, pesos JSON, checksums y snapshots inmutables de estados validados. Flujo: REST/CSV → velas cerradas → resolver etiquetas ya vencidas disponibles → aprender una vez → comparar en ventanas comunes → emitir nuevas probabilidades → commit atómico. La aplicación Streamlit se retiró; se conservan auxiliares compartidos en `dashboard/`.
+- Almacenamiento: `bars` conserva OHLCV inmutables; `predictions` conserva probabilidades/features/etiquetas y si hubo aprendizaje; `models` guarda parámetros JSON; `meta` fija protocolo, proveedor, modo y cursor; `events` registra ciclos/decisiones; `validated_snapshots` conserva pesos y evidencia al validar. SQLite WAL, `synchronous=FULL`, `BEGIN IMMEDIATE` y claves únicas impiden aprendizaje duplicado entre procesos. No se usa pickle ni se reemplazan bases ajenas.
+- Protocolo inicial `config/online.toml`: BTCUSDT spot H1, horizonte 1, inicio 2026-10-28 UTC, warmup 32, polling 30 s, retraso máximo 120 s; ventanas de evaluación 50, mínimo 100 objetivos comunes no solapados, paciencia 3, alpha 0,05. Ventanas cortas no garantizan evidencia: el contraste conservador puede exigir mejoras fuertes o una predeclaración distinta en una base nueva.
+- Entorno local: `.venv/Scripts/python.exe`; comandos existentes `python -m trading_ml --help`, `python -m trading_ml.dmn --help`, `python -m pytest` y `python -m ruff`.
+
+## 3. Funcionalidades completadas
+
+- Memoria preexistente revisada y conservada; inventariados raíz, dependencias y modificaciones locales. Los resultados históricos debajo son registros previos y no se han reproducido en esta sesión.
+- Se identificaron cambios anteriores del usuario en `README.md`, `rl_signal/`, su configuración, guías, script y prueba. Deben preservarse.
+- Implementados baseline de frecuencia Beta y dos logísticas incrementales con tasas de aprendizaje fijas. Solo aprenden de predicciones propias confirmadas. Nuevas cohortes independientes de DMN/RL/XGBoost históricos.
+- Implementada comparación pareada de Brier con intervalos no solapados, cota Hoeffding-Azuma bajo nulo condicional y alpha spending para dos direcciones/cohorte/miradas. Inferioridad significativa persistente desactiva; mejora persistente valida el proceso predictivo. Deterioro significativo revoca validación; los snapshots previos se conservan.
+- CLI `online init/run/status/predictions/report/verify/backup/restore/catalog/infer`, wrapper PowerShell, salida JSON por línea y reintentos de red/locks. `run` devuelve las nuevas probabilidades; `predictions` consulta pendientes/evaluadas y sus resultados con filtros. Eliminados `dashboard/app.py`, comando web y dependencias web opcionales; auxiliares compartidos y sus pruebas permanecen.
+- Suite completa: **455 pruebas aprobadas** en 176,70 s, recibo `artifacts/online_smoke/final_pytest.xml`. Tras las últimas ampliaciones de consulta y preservación SQLite: **53 pruebas de integración aprobadas** en 13,04 s (servicio 17, CLI 23, regresiones 13), recibo `artifacts/online_smoke/final_online_integration.xml`. Estos conteos se superponen y no deben sumarse. Ruff global limpio, formato de los archivos nuevos limpio y `pip check` correcto.
+- Smoke real del wrapper PowerShell: `artifacts/online_smoke/cli_20261028_v2/`; 96 velas sintéticas, 195 predicciones, 192 confirmadas, 3 pendientes, reinicio idempotente sin nuevos cambios, backup/restauración verificados y consultas de probabilidades pendientes/evaluadas correctas. Esto verifica software, no calidad predictiva real.
+- Proveedor real Binance comprobado. Estado principal `artifacts/online/state.sqlite3`: 999 velas H1, cero predicciones porque el cierre estaba fuera de tolerancia; integridad verificada. Smoke live de un minuto aislado en `artifacts/online_smoke/live_20261028_1m/`: **12 predicciones reales, 9 evaluadas sobre 3 objetivos compartidos y 3 pendientes**, cada modelo actualizado 3 veces, 1.004 velas almacenadas. Reinicio tras interrupción confirmó pendientes sin inventar predicciones omitidas. Evidencia exacta: `final_evidence.json`; ninguna operación, modelo validado ni rentabilidad demostrada.
+
+## 4. Trabajo en progreso
+
+- No queda una implementación obligatoria pendiente de esta sesión. La actividad pendiente es operativa y estadística: mantener el proceso abierto y reunir una muestra prospectiva suficiente; no hay modelos online validados todavía.
+- Decisiones: SQLite con transacción por ciclo; modelos incrementales separados de artefactos históricos; modos live/replay incompatibles en una misma base; velas cerradas, horizontes por timestamp exacto y sin cruzar huecos; no simular prospectividad mediante backfill.
+- Comparación de Brier pareada, intervalos no solapados, control por multiplicidad y miradas sucesivas, persistencia de inferioridad antes de desactivar. Conservar modelos y evidencia, sin borrado automático.
+- Comprobados y corregidos errores durante revisión: fuente retrasada no invalida una etiqueta antes de alcanzar su objetivo; emisión live se comprueba contra tiempo real después de datos/inferencia para no registrar predicciones vencidas; inicialización exige esquema y versión reconocidos antes de escribir en una SQLite existente. Reloj monotónico respecto de último poll y cursor; revisiones de velas cerradas ya persistidas se rechazan. Pruebas específicas confirman rollback total si falla el aprendizaje y exclusión de escrituras fuera del workspace.
+
+## 5. Tareas pendientes
+
+1. Mantener `online run` activo con el protocolo H1 existente y comprobar las siguientes predicciones/confirmaciones mediante `predictions`, `status`, `report` y `verify`. Si se retoma tarde, se resuelven pendientes disponibles y se espera un cierre fresco; no se rellenan predicciones faltantes.
+2. Acumular evidencia prospectiva suficiente antes de considerar validado un modelo. Conservar protocolo, ventanas y cohorte; cualquier experimento distinto necesita otra base. No tratar los tres objetivos reales de smoke como validación.
+3. Añadir, si se solicita, proveedores live de otros mercados y comparadores adicionales con contratos temporales propios; no asumir que los modelos históricos se volvieron incrementales.
+4. Medir rendimiento/almacenamiento en seguimiento extenso y diseñar compactación auditada antes de usar años de datos de un minuto. Automatización como servicio de Windows todavía no instalada.
+5. La calidad económica requiere un protocolo independiente de costos, latencia y ejecución hipotética; Brier y precisión no demuestran rentabilidad.
+
+## 6. Historial de desarrollo
+
+### 2026-10-28 — Inicio de aprendizaje en línea y CLI
+
+- Objetivo: implementar la misión solicitada usando exclusivamente el workspace local.
+- Inspección: `Get-Location`, `Get-ChildItem -Force`, `rg --files`, `git status --short`, lecturas UTF-8 de memoria, configuración, CLI y módulos compartidos.
+- Estado inicial: README modificado y archivos RL sin seguimiento, conservados. `CODEX_PROGRESS.md` existía con historial hasta investigaciones del 17/18 de octubre; se añade esta estructura sin eliminarlo.
+- Problema detectado: log legado permite backfill y usa semánticas de costos close/close; no se reutilizará como evidencia prospectiva del nuevo servicio.
+- Archivos de implementación nuevos: `config/online.toml`, `src/trading_ml/online/`, `scripts/trading-online.ps1`, `tests/test_online_{models,data,service,cli,regressions}.py`. Modificados CLI, README, pyproject y este documento; eliminado solo `src/trading_ml/dashboard/app.py` tras verificar dependencias.
+- Errores de infraestructura: pytest requirió crear el padre de `--basetemp`. La primera regresión global dio 450 aprobadas/2 fallidas porque dos cachés históricas excedían MAX_PATH de Windows (274/280 caracteres) con un directorio temporal largo. Ambas pasaron al usar `artifacts/t`; la repetición global con ruta corta `artifacts/f` dio 455 aprobadas (se habían agregado tres pruebas de latencia). No se modificaron los módulos históricos para sortear ese problema.
+- Hallazgo final: una SQLite ajena con tablas de nombres similares podía recibir metadatos antes de fallar. Se reforzó el reconocimiento de esquema/versión antes de escribir; pruebas con y sin tablas similares confirman preservación byte por byte. También se verificaron destinos externos rechazados antes de crear carpetas.
+- Comandos principales ejecutados: `python -m pytest -q --basetemp artifacts/f --junitxml artifacts/online_smoke/final_pytest.xml`; `python -m pytest tests/test_online_regressions.py tests/test_online_cli.py tests/test_online_service.py -q --basetemp artifacts/of --junitxml artifacts/online_smoke/final_online_integration.xml`; `python -m ruff check src tests scripts`; `python -m ruff format --check src/trading_ml/online tests/test_online*`; `python -m pip check`; `git diff --check`. Todos con `.venv/Scripts/python.exe`.
+- Ejecución real H1: `online run --once --state artifacts/online/live_20261028.sqlite3`, luego copia verificada a `artifacts/online/state.sqlite3` para que funcione el comando por defecto. Ejecución live 1m: protocolo aislado en `artifacts/online_smoke/live_20261028_1m/protocol.toml`, cuatro ciclos a 25 s y un ciclo posterior de recuperación. El proceso de smoke terminó; no hay daemon instalado ni seguimiento que continúe tras esta sesión.
+- Los cambios previos del usuario en RL y README se preservaron. No hubo pull/clone/checkout/reset, investigación del remoto, promoción de modelos históricos ni apertura de reservas. Los ajustes de pruebas fueron sintéticos/temporales dentro del proyecto; la cohorte live aprendió solo de sus tres objetivos confirmados.
+
+## 7. Cómo continuar el proyecto
+
+Leer primero esta cabecera, después `git status --short` y los archivos locales. Contrastar la memoria con `config/online.toml`, `src/trading_ml/online/{service,store,evaluation,models,cli}.py`, `scripts/trading-online.ps1` y `tests/test_online_*`. El código local prevalece. La implementación está terminada; **la siguiente acción concreta es arrancar el seguimiento H1 y verificar el primer cierre nuevo de esa base**. La base H1 principal está preparada con 999 velas y ningún pronóstico; el smoke 1m está separado y no debe fusionarse con ella.
+
+```powershell
+# Desde la raíz, usando el entorno ya existente:
+.\.venv\Scripts\python.exe -m trading_ml online verify
+.\scripts\trading-online.ps1 run
+# Dejar el proceso activo; Ctrl+C termina limpiamente y el próximo run retoma.
+# En otra terminal del mismo proyecto:
+.\scripts\trading-online.ps1 status
+.\scripts\trading-online.ps1 predictions --limit 20
+.\scripts\trading-online.ps1 report
+.\scripts\trading-online.ps1 verify
+# Copia coherente: elegir SIEMPRE un nombre de destino nuevo.
+.\scripts\trading-online.ps1 backup --output artifacts/online/backup_nuevo.sqlite3
+.\scripts\trading-online.ps1 restore --backup artifacts/online/backup_nuevo.sqlite3 --state artifacts/online/recuperado_nuevo.sqlite3
+# Regresión con ruta corta (los temporales permanecen dentro del proyecto):
+.\.venv\Scripts\python.exe -m pytest -q --basetemp artifacts/t
+.\.venv\Scripts\python.exe -m ruff check src tests scripts
+```
+
+El estado por defecto se toma de `online.state_path`. `--state` permite otra base. El wrapper resuelve la raíz aunque se invoque desde otro directorio. Para replay: copiar el protocolo, fijar intervalo/start_at correspondientes al CSV de desarrollo y usar `--source <csv> --replay --state <base_distinta> --once`. Nunca apuntar a reservas selladas. Un cambio de contrato en la misma base se rechaza; no editar metadatos/checksums para forzarlo. No repetir investigaciones históricas, tocar modelos previos, activar órdenes ni reemplazar cambios del usuario. Actualizar este archivo después de cambios, pruebas o problemas importantes y al cerrar la próxima sesión.
+
+## 8. Limitaciones y riesgos
+
+- No hay evidencia nueva de rentabilidad ni modelos online validados con observaciones reales. Los tests de validación/snapshots usan escenarios sintéticos identificados explícitamente.
+- Evitar data leakage: no aprender de velas abiertas, etiquetas sin horizonte completo, backfill marcado prospectivo ni resultados de reservas ya examinadas.
+- Los resultados históricos son experimentales; selección repetida, sobreajuste, costos omitidos y deriva pueden invalidar ventajas aparentes.
+- Forex y modelos históricos conservan sus limitaciones originales. El proveedor online es spot público Binance por polling REST; sin Forex live ni adaptación incremental de los modelos congelados.
+- Validación Brier corresponde al proceso incremental, no valida independientemente los pesos finales de un snapshot. Si se congela ese estado para otra estrategia requiere evaluación futura propia. El criterio es conservador y puede permanecer sin evidencia durante mucho tiempo.
+- El proceso debe mantenerse activo; cerrar la terminal interrumpe el seguimiento y reanudar no inventa predicciones omitidas. SQLite ofrece recuperación de transacciones y copias verificadas a rutas nuevas; no reconstruye datos corruptos sin copia válida.
+- El estado crece sin poda; auditoría y carga del historial por ciclo escalan con su tamaño. H1 es el valor inicial, no se ha validado rendimiento de años de datos de un minuto.
+- Se usa reloj UTC local; no hay cotejo automático con `serverTime`. Mantener sincronizado el reloj del equipo. Las copias SQLite deben hacerse con el comando `backup`, que incluye el estado coherente de WAL; no asumir que copiar únicamente el archivo abierto conserva las últimas transacciones.
+
+---
+
+# Registro histórico conservado (anterior a la misión online)
 
 Actualizado: 2026-10-17 (America/Buenos_Aires). Etapa actual: **estudio focalizado de capacidad predictiva y rentabilidad con variables financieras seleccionadas (`20261017T232854_36d523ee`) completado**, superando significativamente (`p_Holm <= 0,040`) tanto a `F0_base` como a controles de ruido de igual dimensión en capacidad predictiva para `ETHUSDT` (`top_core_4_sp500` y `nested_selected`) y `EURUSD` (`vx_liq_core_4` y `vx_core_2`), y mejorando la rentabilidad neta bajo costos reales y estrés 2x en `BTCUSDT` ($\tau = 0,55$, `top_core_3`).
 

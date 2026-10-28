@@ -1,0 +1,21 @@
+# Spot público, solo observación. Las credenciales y órdenes no son necesarias.
+[market]
+symbol = "BTCUSDT"
+interval = "1h"
+horizon = 1
+
+[online]
+state_path = "artifacts/online/state.sqlite3"
+start_at = "2026-10-28T00:00:00Z"
+poll_seconds = 30
+warmup_bars = 32
+max_prediction_delay_seconds = 120
+max_fetch_pages = 20
+seed = 42
+
+[evaluation]
+eval_window = 50
+min_samples = 100
+patience = 3
+alpha = 0.05
+min_effect = 0.001
